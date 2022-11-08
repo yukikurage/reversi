@@ -9,7 +9,7 @@ Definitions of pure functions.
 import Prelude
 
 import Control.Alternative (guard)
-import Data.Array (fold, foldl, index, last, length, mapWithIndex, takeWhile, updateAt, (..))
+import Data.Array (catMaybes, fold, foldl, index, last, length, mapWithIndex, takeWhile, updateAt, (..))
 import Data.Foldable (sum)
 import Data.Maybe (Maybe(..))
 import Data.String (joinWith)
@@ -141,6 +141,14 @@ availablePositions b c = do
   w <- 0 .. (sizeW - 1)
   guard $ putDisk h w c b /= Nothing
   pure $ h /\ w
+
+-- | Return next boards
+-- | Sorted by same order as availablePositions
+nextBoards :: Board -> Boolean -> Array Board
+nextBoards b c = catMaybes do
+  h <- 0 .. (sizeH - 1)
+  w <- 0 .. (sizeW - 1)
+  pure $ putDisk h w c b
 
 -- | Check if the game is over
 isGameOver :: Board -> Boolean

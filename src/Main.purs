@@ -6,13 +6,13 @@ import Data.Tuple.Nested ((/\))
 import Effect (Effect)
 import Effect.Aff (launchAff_)
 import Effect.Class.Console (log)
-import Reversi.Console (manual)
+import Reversi.Console (diskCountCom, manual, randomCom)
 import Reversi.Game (gameStart)
 import Reversi.System (boardToString, countDisks, initialBoard)
 
 main :: Effect Unit
 main = launchAff_ do
-  lastBoard <- gameStart manual manual initialBoard
+  lastBoard <- gameStart manual diskCountCom initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard

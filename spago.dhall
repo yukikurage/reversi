@@ -21,7 +21,10 @@ to generate this file without the comments in this block.
   , "foldable-traversable"
   , "integers"
   , "maybe"
+  , "now"
+  , "numbers"
   , "prelude"
+  , "random"
   , "strings"
   , "tuples"
   ]
