@@ -25,11 +25,11 @@ import Reversi.Util (maximumI, minimumI)
 
 main :: Effect Unit
 main = launchAff_ do
-  learn 20 75 10000
+  learn 20 260 100000
 
 learn :: Int -> Int -> Int -> Aff Unit
 learn saveMod initGen step = do
-  newParams <- liftEffect $ for (0 .. 4) \j -> do
+  newParams <- liftEffect $ for (0 .. 9) \j -> do
     mp <- readFromFile ("gen/" <> show initGen) (show j <> ".json")
     pure $ fromMaybe' (\_ -> initParams) mp
   let
@@ -39,7 +39,7 @@ learn saveMod initGen step = do
       params <- liftEffect $ genNext selected
       rs <- ranking params
       let
-        select = take 5 rs
+        select = take 10 rs
       when (i `mod` saveMod == 0) do
         forWithIndex_ select \j p -> liftEffect do
           writeToFile ("gen/" <> show i) (show j <> ".json") p
@@ -51,20 +51,20 @@ learn saveMod initGen step = do
     writeToFile ("gen/" <> show (initGen + step)) (show j <> ".json") p
   log $ "saved"
 
--- | choose top 5
--- | mutate 1
--- | cross 14
--- | copy 5
+-- | choose top 10
+-- | mutate 2
+-- | cross 13
+-- | copy 10
 genNext :: Array Params -> Effect (Array Params)
 genNext tops = do
-  mutated <- for (0 .. 0) \_ -> do
-    i <- randomInt 0 4
+  mutated <- for (0 .. 1) \_ -> do
+    i <- randomInt 0 9
     let
       p = fromMaybe' (\_ -> initParams) $ tops !! i
     mutateParams p
-  crossed <- for (0 .. 13) \_ -> do
-    i <- randomInt 0 4
-    j <- randomInt 0 4
+  crossed <- for (0 .. 12) \_ -> do
+    i <- randomInt 0 9
+    j <- randomInt 0 9
     let
       p1 = fromMaybe' (\_ -> initParams) $ tops !! i
       p2 = fromMaybe' (\_ -> initParams) $ tops !! j
