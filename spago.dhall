@@ -17,6 +17,8 @@ to generate this file without the comments in this block.
   , "arrays"
   , "console"
   , "control"
+  , "datetime"
+  , "debug"
   , "effect"
   , "foldable-traversable"
   , "integers"

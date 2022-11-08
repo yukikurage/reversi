@@ -17,7 +17,12 @@ import Data.Tuple.Nested ((/\))
 import Reversi.System (Board, countDisks)
 
 -- | miniMax
--- | 最善手を探す
+-- | 現在から最善手を打った時の最終的な盤面のスコアを返す
+-- | evalF : 評価関数
+-- |   evalF が大きいほうが true にとって有利
+-- | getNext : 次の盤面を得る関数
+-- | player : 次に駒をおくプレイヤー
+-- | target : 評価する盤面の対象
 miniMax :: forall a. (a -> Number) -> (a -> Boolean -> Array a) -> Boolean -> Int -> a -> Number
 miniMax evalF _ _ 0 target = evalF target
 miniMax evalF getNext player depth target =
@@ -28,16 +33,16 @@ miniMax evalF getNext player depth target =
       evalF target
     else
       let
-        nexts' = map (\x -> miniMax evalF getNext (not player) (depth - 1) x) nexts
+        nexts' = map (miniMax evalF getNext (not player) (depth - 1)) nexts
       in
         if player then
           fromMaybe (-infinity) $ maximum nexts'
         else
           fromMaybe infinity $ minimum nexts'
 
-diskCount :: Board -> Boolean -> Number
-diskCount b c =
+diskCount :: Board -> Number
+diskCount b =
   let
     bl /\ wh = countDisks b
   in
-    toNumber if c then bl - wh else wh - bl
+    toNumber $ bl - wh

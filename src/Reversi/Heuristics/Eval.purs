@@ -55,12 +55,12 @@ mutateCellParams p = do
   b <- if bf then randomRange (-1.0) 1.0 else pure p.b
   pure { a, b }
 
-evalCell :: CellParams -> Int -> Boolean -> Maybe Boolean -> Number
-evalCell { a, b } turn player cell =
+evalCell :: CellParams -> Int -> Maybe Boolean -> Number
+evalCell { a, b } turn cell =
   let
     cellP = case cell of
       Nothing -> 0.0
-      Just c -> if c == player then 1.0 else -1.0
+      Just c -> if c then 1.0 else -1.0
   in
     cellP * (a * toNumber turn + b)
 
@@ -113,12 +113,16 @@ indexP params h w = do
   row <- index params h''
   index row w''
 
-evalBoard :: Params -> Boolean -> Board -> Number
-evalBoard params player board =
+-- | 最後 12 手は最大化するように打つ
+greedyNum :: Int
+greedyNum = 12
+
+evalBoard :: Params -> Board -> Number
+evalBoard params board =
   let
     bl /\ wh = countDisks board
     turn = bl + wh
     cellParams h w = fromMaybe' (\_ -> unsafeCrashWith "Error") $ indexP params h w
-    evalCell' h w = evalCell (cellParams h w) turn player
+    evalCell' h w = evalCell (cellParams h w) turn
   in
     sum $ mapWithIndex (\h row -> sum $ mapWithIndex (\w cell -> evalCell' h w cell) row) board

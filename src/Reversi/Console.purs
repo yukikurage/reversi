@@ -9,20 +9,21 @@ Reversi using the console.
 import Prelude
 
 import Data.Array (length, (!!))
-import Data.FoldableWithIndex (foldlWithIndex)
+import Data.DateTime.Instant (unInstant)
 import Data.Int (fromString)
-import Data.Maybe (fromMaybe)
-import Data.Number (infinity)
+import Data.Maybe (fromMaybe, fromMaybe')
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (Milliseconds(..), launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
+import Effect.Now (now)
 import Effect.Random (randomInt)
 import Reversi.Com (diskCount, miniMax)
 import Reversi.Game (Player, gameStart)
-import Reversi.Heuristics.Eval (evalBoard, initParams)
+import Reversi.Heuristics.Eval (Params, evalBoard, initParams, readFromFile)
 import Reversi.System (availablePositions, boardToString, countDisks, initialBoard, nextBoards)
+import Reversi.Util (maximumI, minimumI)
 import Stdin (questionValid)
 
 {-
@@ -40,9 +41,13 @@ type Player = Boolean -- True: Black, False: White
   }
 -}
 
+gen ∷ Int
+gen = 60
+
 main :: Effect Unit
 main = launchAff_ do
-  lastBoard <- gameStart (evalInitCom 2) (evalInitCom 2) initialBoard
+  params <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/" <> show gen) "0.json"
+  lastBoard <- gameStart manual (evalInitCom params) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
@@ -89,10 +94,10 @@ diskCountCom depth = \c ->
       let
         avs = availablePositions board c
         nb = nextBoards board c
-        points = map (miniMax (\b -> diskCount b c) nextBoards (not c) depth) nb
-        maxI /\ _ = foldlWithIndex (\i (accI /\ accP) p -> if p > accP then (i /\ p) else (accI /\ accP)) (-1 /\ -infinity) points
+        points = map (miniMax diskCount nextBoards (not c) depth) nb
+        i = (if c then maximumI else minimumI) points
       in
-        pure $ fromMaybe (-1 /\ -1) $ avs !! maxI
+        pure $ fromMaybe (-1 /\ -1) $ avs !! i
   , turnCallback: \board -> do
       log $ boardToString board
       log $ "Com turn. (" <> (if c then "Black" else "White") <> ")"
@@ -103,24 +108,35 @@ diskCountCom depth = \c ->
   }
 
 -- | Equal to `diskCountCom`.
-evalInitCom :: Int -> Player
-evalInitCom depth = \c ->
-  let
-    ip = initParams
-  in
-    { strategy: \board ->
-        let
-          avs = availablePositions board c
-          nb = nextBoards board c
-          points = map (miniMax (evalBoard ip c) nextBoards (not c) depth) nb
-          maxI /\ _ = foldlWithIndex (\i (accI /\ accP) p -> if p > accP then (i /\ p) else (accI /\ accP)) (-1 /\ -infinity) points
-        in
-          pure $ fromMaybe (-1 /\ -1) $ avs !! maxI
-    , turnCallback: \board -> do
-        log $ boardToString board
-        log $ "Com turn. (" <> (if c then "Black" else "White") <> ")"
-    , invalidCallback: \_ -> do
-        log "Invalid position."
-    , skipCallback: \_ -> do
-        log "You cannot put a disk. Skip your turn."
-    }
+evalInitCom :: Params -> Player
+evalInitCom params = \c ->
+  { strategy: \board -> do
+      let
+        bc /\ wc = countDisks board
+        turn = bc + wc
+        avs = availablePositions board c
+        nb = nextBoards board c
+      let
+        go :: Int -> Effect (Array Number)
+        go n = do
+          log $ show n
+          Milliseconds st <- liftEffect $ unInstant <$> now
+          let
+            p = map (miniMax (if turn < 56 then evalBoard params else diskCount) nextBoards (not c) n) nb
+          Milliseconds et <- liftEffect $ unInstant <$> now
+          if et - st < 1500.0 && n < 20 then
+            go (n + 1)
+          else
+            pure p
+      points <- liftEffect $ go 2
+      let
+        i = (if c then maximumI else minimumI) points
+      pure $ fromMaybe (-1 /\ -1) $ avs !! i
+  , turnCallback: \board -> do
+      log $ boardToString board
+      log $ "Com turn. (" <> (if c then "Black" else "White") <> ")"
+  , invalidCallback: \_ -> do
+      log "Invalid position."
+  , skipCallback: \_ -> do
+      log "You cannot put a disk. Skip your turn."
+  }
