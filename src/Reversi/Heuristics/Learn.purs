@@ -27,7 +27,7 @@ import Reversi.Util (maximumIs, minimumIs, randArr)
 
 main :: Effect Unit
 main = launchAff_ do
-  learn 50 60 100000
+  learn 10 100 100000
 
 learn :: Int -> Int -> Int -> Aff Unit
 learn saveMod initGen step = do
