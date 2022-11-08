@@ -38,5 +38,6 @@ to generate this file without the comments in this block.
   , "unfoldable"
   ]
 , packages = ./packages.dhall
+, backend = "purs-backend-es build"
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
 }

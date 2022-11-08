@@ -8,10 +8,8 @@ Computer strategies
 
 import Prelude
 
-import Data.Array (null)
-import Data.Foldable (maximum, minimum)
+import Data.Array (foldl, null)
 import Data.Int (toNumber)
-import Data.Maybe (fromMaybe)
 import Data.Number (infinity)
 import Data.Tuple.Nested ((/\))
 import Reversi.System (Board, countDisks)
@@ -30,15 +28,20 @@ miniMax evalF getNext player depth target =
     nexts = getNext target player
   in
     if null nexts then
-      evalF target
-    else
       let
-        nexts' = map (miniMax evalF getNext (not player) (depth - 1)) nexts
+        nextsOp = getNext target $ not player
       in
-        if player then
-          fromMaybe (-infinity) $ maximum nexts'
+        if null nextsOp then
+          evalF target
+        else if player then
+          foldl (\acc x -> max (miniMax evalF getNext player (depth - 1) x) acc) (-infinity) nextsOp
         else
-          fromMaybe infinity $ minimum nexts'
+          foldl (\acc x -> min (miniMax evalF getNext player (depth - 1) x) acc) infinity nextsOp
+
+    else if player then
+      foldl (\acc x -> max (miniMax evalF getNext (not player) (depth - 1) x) acc) (-infinity) nexts
+    else
+      foldl (\acc x -> min (miniMax evalF getNext (not player) (depth - 1) x) acc) infinity nexts
 
 diskCount :: Board -> Number
 diskCount b =

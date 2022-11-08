@@ -25,7 +25,7 @@ import Reversi.Util (maximumI, minimumI)
 
 main :: Effect Unit
 main = launchAff_ do
-  learn 5 60 5
+  learn 20 75 10000
 
 learn :: Int -> Int -> Int -> Aff Unit
 learn saveMod initGen step = do
@@ -52,17 +52,17 @@ learn saveMod initGen step = do
   log $ "saved"
 
 -- | choose top 5
--- | mutate 2
--- | cross 13
+-- | mutate 1
+-- | cross 14
 -- | copy 5
 genNext :: Array Params -> Effect (Array Params)
 genNext tops = do
-  mutated <- for (0 .. 1) \_ -> do
+  mutated <- for (0 .. 0) \_ -> do
     i <- randomInt 0 4
     let
       p = fromMaybe' (\_ -> initParams) $ tops !! i
     mutateParams p
-  crossed <- for (0 .. 12) \_ -> do
+  crossed <- for (0 .. 13) \_ -> do
     i <- randomInt 0 4
     j <- randomInt 0 4
     let
@@ -109,7 +109,7 @@ evalPlayer params = \c ->
   { strategy: \board ->
       let
         bc /\ wc = countDisks board
-        evalF = if bc + wc < 56 then evalBoard params else diskCount
+        evalF = if bc + wc < 54 then evalBoard params else diskCount
         avs = availablePositions board c
         nb = nextBoards board c
         points = map evalF nb
@@ -120,4 +120,3 @@ evalPlayer params = \c ->
   , invalidCallback: \_ -> pure unit
   , skipCallback: \_ -> pure unit
   }
-

@@ -42,12 +42,13 @@ type Player = Boolean -- True: Black, False: White
 -}
 
 gen ∷ Int
-gen = 60
+gen = 75
 
 main :: Effect Unit
 main = launchAff_ do
   params <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/" <> show gen) "0.json"
-  lastBoard <- gameStart manual (evalInitCom params) initialBoard
+  params60 <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/60") "0.json"
+  lastBoard <- gameStart (evalInitCom params60) (evalInitCom params) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
@@ -116,15 +117,15 @@ evalInitCom params = \c ->
         turn = bc + wc
         avs = availablePositions board c
         nb = nextBoards board c
+      Milliseconds st <- liftEffect $ unInstant <$> now
       let
         go :: Int -> Effect (Array Number)
         go n = do
           log $ show n
-          Milliseconds st <- liftEffect $ unInstant <$> now
           let
-            p = map (miniMax (if turn < 56 then evalBoard params else diskCount) nextBoards (not c) n) nb
+            p = map (miniMax (if turn < 54 then evalBoard params else diskCount) nextBoards (not c) n) nb
           Milliseconds et <- liftEffect $ unInstant <$> now
-          if et - st < 1500.0 && n < 20 then
+          if et - st < 600.0 && n < 20 then
             go (n + 1)
           else
             pure p

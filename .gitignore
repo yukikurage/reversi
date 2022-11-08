@@ -8,3 +8,7 @@
 /.purs*
 /.psa*
 /.spago
+index.js
+/output-es
+console.js
+learn.js
