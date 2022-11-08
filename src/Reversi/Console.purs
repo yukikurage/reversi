@@ -14,12 +14,15 @@ import Data.Int (fromString)
 import Data.Maybe (fromMaybe)
 import Data.Number (infinity)
 import Data.Tuple.Nested ((/\))
+import Effect (Effect)
+import Effect.Aff (launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
 import Effect.Random (randomInt)
 import Reversi.Com (diskCount, miniMax)
-import Reversi.Game (Player)
-import Reversi.System (availablePositions, boardToString, nextBoards)
+import Reversi.Game (Player, gameStart)
+import Reversi.Heuristics.Eval (evalBoard, initParams)
+import Reversi.System (availablePositions, boardToString, countDisks, initialBoard, nextBoards)
 import Stdin (questionValid)
 
 {-
@@ -36,6 +39,15 @@ type Player = Boolean -- True: Black, False: White
   , skipCallback :: Board -> Aff Unit
   }
 -}
+
+main :: Effect Unit
+main = launchAff_ do
+  lastBoard <- gameStart (evalInitCom 2) (evalInitCom 2) initialBoard
+  log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
+  let
+    b /\ w = countDisks lastBoard
+  log $ "Black: " <> show b <> ", White: " <> show w
+  log $ "Winner: " <> if b > w then "Black" else "White"
 
 manual :: Player
 manual = \c ->
@@ -71,13 +83,13 @@ randomCom = \c ->
       log "You cannot put a disk. Skip your turn."
   }
 
-diskCountCom :: Player
-diskCountCom = \c ->
+diskCountCom :: Int -> Player
+diskCountCom depth = \c ->
   { strategy: \board ->
       let
         avs = availablePositions board c
         nb = nextBoards board c
-        points = map (miniMax (\b -> diskCount b c) nextBoards (not c) 3) nb
+        points = map (miniMax (\b -> diskCount b c) nextBoards (not c) depth) nb
         maxI /\ _ = foldlWithIndex (\i (accI /\ accP) p -> if p > accP then (i /\ p) else (accI /\ accP)) (-1 /\ -infinity) points
       in
         pure $ fromMaybe (-1 /\ -1) $ avs !! maxI
@@ -89,3 +101,26 @@ diskCountCom = \c ->
   , skipCallback: \_ -> do
       log "You cannot put a disk. Skip your turn."
   }
+
+-- | Equal to `diskCountCom`.
+evalInitCom :: Int -> Player
+evalInitCom depth = \c ->
+  let
+    ip = initParams 8 8
+  in
+    { strategy: \board ->
+        let
+          avs = availablePositions board c
+          nb = nextBoards board c
+          points = map (miniMax (evalBoard ip c) nextBoards (not c) depth) nb
+          maxI /\ _ = foldlWithIndex (\i (accI /\ accP) p -> if p > accP then (i /\ p) else (accI /\ accP)) (-1 /\ -infinity) points
+        in
+          pure $ fromMaybe (-1 /\ -1) $ avs !! maxI
+    , turnCallback: \board -> do
+        log $ boardToString board
+        log $ "Com turn. (" <> (if c then "Black" else "White") <> ")"
+    , invalidCallback: \_ -> do
+        log "Invalid position."
+    , skipCallback: \_ -> do
+        log "You cannot put a disk. Skip your turn."
+    }

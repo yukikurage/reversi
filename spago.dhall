@@ -21,10 +21,13 @@ to generate this file without the comments in this block.
   , "foldable-traversable"
   , "integers"
   , "maybe"
+  , "node-fs"
+  , "node-path"
   , "now"
   , "numbers"
   , "prelude"
   , "random"
+  , "simple-json"
   , "strings"
   , "tuples"
   ]
