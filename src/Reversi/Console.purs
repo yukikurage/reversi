@@ -10,7 +10,7 @@ import Prelude
 
 import Data.Array (length, (!!))
 import Data.DateTime.Instant (unInstant)
-import Data.Int (fromString)
+import Data.Int (fromString, toNumber)
 import Data.Maybe (fromMaybe, fromMaybe')
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
@@ -42,13 +42,12 @@ type Player = Boolean -- True: Black, False: White
 -}
 
 gen ∷ Int
-gen = 600
+gen = 60
 
 main :: Effect Unit
 main = launchAff_ do
   params <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/" <> show gen) "0.json"
-  params60 <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/60") "0.json"
-  lastBoard <- gameStart (evalInitCom params60) (evalInitCom params) initialBoard
+  lastBoard <- gameStart manual (evalInitCom params) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
@@ -95,8 +94,10 @@ diskCountCom depth = \c ->
       let
         avs = availablePositions board c
         nb = nextBoards board c
+        bc /\ wc = countDisks board
+        turn = bc + wc
         points = map (miniMax diskCount nextBoards (not c) depth) nb
-        is = (if c then maximumIs else minimumIs) points
+        is = (if c then maximumIs (toNumber turn * 0.02) else minimumIs (toNumber turn * 0.02)) points
       i <- liftEffect $ fromMaybe 1 <$> randArr is
       pure $ fromMaybe (-1 /\ -1) $ avs !! i
   , turnCallback: \board -> do
@@ -108,7 +109,6 @@ diskCountCom depth = \c ->
       log "You cannot put a disk. Skip your turn."
   }
 
--- | Equal to `diskCountCom`.
 evalInitCom :: Params -> Player
 evalInitCom params = \c ->
   { strategy: \board -> do
@@ -125,13 +125,13 @@ evalInitCom params = \c ->
           let
             p = map (miniMax (if turn < 56 then evalBoard params else diskCount) nextBoards (not c) n) nb
           Milliseconds et <- liftEffect $ unInstant <$> now
-          if et - st < 100.0 && n < 20 then
+          if et - st < 500.0 && n < 20 then
             go (n + 1)
           else
             pure p
       points <- liftEffect $ go 2
       let
-        is = (if c then maximumIs else minimumIs) points
+        is = (if c then maximumIs (toNumber turn * 0.01) else minimumIs (toNumber turn * 0.01)) points
       i <- liftEffect $ fromMaybe 1 <$> randArr is
       pure $ fromMaybe (-1 /\ -1) $ avs !! i
   , turnCallback: \board -> do

@@ -8,6 +8,7 @@ import Data.Array (foldM, length, replicate, sortBy, take, zip, (!!), (..))
 import Data.Array.ST as AST
 import Data.Foldable (for_)
 import Data.FoldableWithIndex (forWithIndex_)
+import Data.Int (toNumber)
 import Data.Maybe (fromMaybe, fromMaybe')
 import Data.Traversable (for)
 import Data.Tuple (snd)
@@ -26,11 +27,11 @@ import Reversi.Util (maximumIs, minimumIs, randArr)
 
 main :: Effect Unit
 main = launchAff_ do
-  learn 50 550 100000
+  learn 50 60 100000
 
 learn :: Int -> Int -> Int -> Aff Unit
 learn saveMod initGen step = do
-  newParams <- liftEffect $ for (0 .. 9) \j -> do
+  newParams <- liftEffect $ for (0 .. 4) \j -> do
     mp <- readFromFile ("gen/" <> show initGen) (show j <> ".json")
     pure $ fromMaybe' (\_ -> initParams) mp
   let
@@ -52,20 +53,20 @@ learn saveMod initGen step = do
     writeToFile ("gen/" <> show (initGen + step)) (show j <> ".json") p
   log $ "saved"
 
--- | choose top 10
+-- | choose top 5
 -- | mutate 1
 -- | cross 14
 -- | copy 5
 genNext :: Array Params -> Effect (Array Params)
 genNext tops = do
   mutated <- for (0 .. 0) \_ -> do
-    i <- randomInt 0 9
+    i <- randomInt 0 4
     let
       p = fromMaybe' (\_ -> initParams) $ tops !! i
     mutateParams p
   crossed <- for (0 .. 13) \_ -> do
-    i <- randomInt 0 9
-    j <- randomInt 0 9
+    i <- randomInt 0 4
+    j <- randomInt 0 4
     let
       p1 = fromMaybe' (\_ -> initParams) $ tops !! i
       p2 = fromMaybe' (\_ -> initParams) $ tops !! j
@@ -113,8 +114,10 @@ evalPlayer params = \c ->
         evalF = evalBoard params
         avs = availablePositions board c
         nb = nextBoards board c
+        bc /\ wc = countDisks board
+        turn = bc + wc
         points = map (miniMax evalF nextBoards (not c) 1) nb
-        is = (if c then maximumIs else minimumIs) points
+        is = (if c then maximumIs (toNumber turn * 0.01) else minimumIs (toNumber turn * 0.01)) points
       i <- liftEffect $ fromMaybe 1 <$> randArr is
       pure $ fromMaybe (-1 /\ -1) $ avs !! i
   , turnCallback: \_ -> pure unit
