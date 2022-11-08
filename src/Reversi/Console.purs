@@ -23,7 +23,7 @@ import Reversi.Com (diskCount, miniMax)
 import Reversi.Game (Player, gameStart)
 import Reversi.Heuristics.Eval (Params, evalBoard, initParams, readFromFile)
 import Reversi.System (availablePositions, boardToString, countDisks, initialBoard, nextBoards)
-import Reversi.Util (maximumI, minimumI)
+import Reversi.Util (maximumIs, minimumIs, randArr)
 import Stdin (questionValid)
 
 {-
@@ -42,7 +42,7 @@ type Player = Boolean -- True: Black, False: White
 -}
 
 gen ∷ Int
-gen = 550
+gen = 600
 
 main :: Effect Unit
 main = launchAff_ do
@@ -91,14 +91,14 @@ randomCom = \c ->
 
 diskCountCom :: Int -> Player
 diskCountCom depth = \c ->
-  { strategy: \board ->
+  { strategy: \board -> do
       let
         avs = availablePositions board c
         nb = nextBoards board c
         points = map (miniMax diskCount nextBoards (not c) depth) nb
-        i = (if c then maximumI else minimumI) points
-      in
-        pure $ fromMaybe (-1 /\ -1) $ avs !! i
+        is = (if c then maximumIs else minimumIs) points
+      i <- liftEffect $ fromMaybe 1 <$> randArr is
+      pure $ fromMaybe (-1 /\ -1) $ avs !! i
   , turnCallback: \board -> do
       log $ boardToString board
       log $ "Com turn. (" <> (if c then "Black" else "White") <> ")"
@@ -123,7 +123,7 @@ evalInitCom params = \c ->
         go n = do
           log $ show n
           let
-            p = map (miniMax (if turn < 54 then evalBoard params else diskCount) nextBoards (not c) n) nb
+            p = map (miniMax (if turn < 56 then evalBoard params else diskCount) nextBoards (not c) n) nb
           Milliseconds et <- liftEffect $ unInstant <$> now
           if et - st < 100.0 && n < 20 then
             go (n + 1)
@@ -131,7 +131,8 @@ evalInitCom params = \c ->
             pure p
       points <- liftEffect $ go 2
       let
-        i = (if c then maximumI else minimumI) points
+        is = (if c then maximumIs else minimumIs) points
+      i <- liftEffect $ fromMaybe 1 <$> randArr is
       pure $ fromMaybe (-1 /\ -1) $ avs !! i
   , turnCallback: \board -> do
       log $ boardToString board

@@ -22,7 +22,7 @@ import Reversi.Com (miniMax)
 import Reversi.Game (Player, gameStart)
 import Reversi.Heuristics.Eval (Params, crossParams, evalBoard, initParams, mutateParams, randParams, readFromFile, writeToFile)
 import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
-import Reversi.Util (maximumI, minimumI)
+import Reversi.Util (maximumIs, minimumIs, randArr)
 
 main :: Effect Unit
 main = launchAff_ do
@@ -108,15 +108,15 @@ ranking params = do
 
 evalPlayer :: Params -> Player
 evalPlayer params = \c ->
-  { strategy: \board ->
+  { strategy: \board -> do
       let
         evalF = evalBoard params
         avs = availablePositions board c
         nb = nextBoards board c
         points = map (miniMax evalF nextBoards (not c) 1) nb
-        i = (if c then maximumI else minimumI) points
-      in
-        pure $ fromMaybe (-1 /\ -1) $ avs !! i
+        is = (if c then maximumIs else minimumIs) points
+      i <- liftEffect $ fromMaybe 1 <$> randArr is
+      pure $ fromMaybe (-1 /\ -1) $ avs !! i
   , turnCallback: \_ -> pure unit
   , invalidCallback: \_ -> pure unit
   , skipCallback: \_ -> pure unit
