@@ -42,13 +42,13 @@ type Player = Boolean -- True: Black, False: White
 -}
 
 gen ∷ Int
-gen = 100
+gen = 410
 
 main :: Effect Unit
 main = launchAff_ do
   params <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/" <> show gen) "0.json"
-  params60 <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/60") "0.json"
-  lastBoard <- gameStart (evalInitCom params) (evalInitCom params60) initialBoard
+  params100 <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/100") "0.json"
+  lastBoard <- gameStart (evalInitCom params100) (evalInitCom params) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
