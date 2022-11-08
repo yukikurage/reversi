@@ -41,7 +41,7 @@ learn saveMod initGen step = do
       params <- liftEffect $ genNext selected
       rs <- ranking params
       let
-        select = take 10 rs
+        select = take 5 rs
       when (i `mod` saveMod == 0) do
         forWithIndex_ select \j p -> liftEffect do
           writeToFile ("gen/" <> show i) (show j <> ".json") p
