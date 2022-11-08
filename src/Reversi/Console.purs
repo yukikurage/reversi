@@ -42,7 +42,7 @@ type Player = Boolean -- True: Black, False: White
 -}
 
 gen ∷ Int
-gen = 75
+gen = 550
 
 main :: Effect Unit
 main = launchAff_ do
@@ -125,7 +125,7 @@ evalInitCom params = \c ->
           let
             p = map (miniMax (if turn < 54 then evalBoard params else diskCount) nextBoards (not c) n) nb
           Milliseconds et <- liftEffect $ unInstant <$> now
-          if et - st < 600.0 && n < 20 then
+          if et - st < 100.0 && n < 20 then
             go (n + 1)
           else
             pure p

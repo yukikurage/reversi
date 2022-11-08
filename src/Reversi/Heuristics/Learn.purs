@@ -2,6 +2,7 @@ module Reversi.Heuristics.Learn where
 
 import Prelude
 
+import Control.Alternative (guard)
 import Control.Monad.ST.Global (toEffect)
 import Data.Array (foldM, length, replicate, sortBy, take, zip, (!!), (..))
 import Data.Array.ST as AST
@@ -17,7 +18,7 @@ import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
 import Effect.Random (randomInt)
-import Reversi.Com (diskCount)
+import Reversi.Com (miniMax)
 import Reversi.Game (Player, gameStart)
 import Reversi.Heuristics.Eval (Params, crossParams, evalBoard, initParams, mutateParams, randParams, readFromFile, writeToFile)
 import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
@@ -25,7 +26,7 @@ import Reversi.Util (maximumI, minimumI)
 
 main :: Effect Unit
 main = launchAff_ do
-  learn 20 260 100000
+  learn 50 550 100000
 
 learn :: Int -> Int -> Int -> Aff Unit
 learn saveMod initGen step = do
@@ -52,24 +53,24 @@ learn saveMod initGen step = do
   log $ "saved"
 
 -- | choose top 10
--- | mutate 2
--- | cross 13
--- | copy 10
+-- | mutate 1
+-- | cross 14
+-- | copy 5
 genNext :: Array Params -> Effect (Array Params)
 genNext tops = do
-  mutated <- for (0 .. 1) \_ -> do
+  mutated <- for (0 .. 0) \_ -> do
     i <- randomInt 0 9
     let
       p = fromMaybe' (\_ -> initParams) $ tops !! i
     mutateParams p
-  crossed <- for (0 .. 12) \_ -> do
+  crossed <- for (0 .. 13) \_ -> do
     i <- randomInt 0 9
     j <- randomInt 0 9
     let
       p1 = fromMaybe' (\_ -> initParams) $ tops !! i
       p2 = fromMaybe' (\_ -> initParams) $ tops !! j
     crossParams p1 p2
-  pure $ tops <> crossed <> mutated
+  pure $ take 5 tops <> crossed <> mutated
 
 genNew :: Int -> Effect (Array Params)
 genNew n = replicateA n randParams
@@ -79,8 +80,9 @@ ranking params = do
   let
     l = length params
     sets = do
-      i <- 0 .. (l - 2)
-      j <- (i + 1) .. (l - 1)
+      i <- 0 .. (l - 1)
+      j <- 0 .. (l - 1)
+      guard $ i /= j
       pure $ i /\ j
   scoreTable <- for sets \(i /\ j) -> do
     let
@@ -108,11 +110,10 @@ evalPlayer :: Params -> Player
 evalPlayer params = \c ->
   { strategy: \board ->
       let
-        bc /\ wc = countDisks board
-        evalF = if bc + wc < 54 then evalBoard params else diskCount
+        evalF = evalBoard params
         avs = availablePositions board c
         nb = nextBoards board c
-        points = map evalF nb
+        points = map (miniMax evalF nextBoards (not c) 1) nb
         i = (if c then maximumI else minimumI) points
       in
         pure $ fromMaybe (-1 /\ -1) $ avs !! i
