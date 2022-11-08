@@ -2,18 +2,21 @@ module Reversi.Heuristics.Eval where
 
 import Prelude
 
-import Data.Array (index, mapWithIndex, replicate, zipWithA)
+import Data.Array (index, mapWithIndex, replicate, zipWithA, (..))
 import Data.Foldable (sum)
+import Data.Functor (mapFlipped)
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..), fromMaybe')
 import Data.Traversable (for)
 import Data.Tuple.Nested ((/\))
 import Data.Unfoldable (replicateA)
 import Effect (Effect)
 import Effect.Random (randomBool, randomRange)
 import Node.Encoding (Encoding(..))
-import Node.FS.Sync (mkdir, readTextFile, writeTextFile)
+import Node.FS.Perms (all, mkPerms)
+import Node.FS.Sync (mkdir', readTextFile, writeTextFile)
 import Node.Path (concat)
+import Partial.Unsafe (unsafeCrashWith)
 import Reversi.System (Board, countDisks)
 import Simple.JSON (readJSON_, writeJSON)
 
@@ -61,14 +64,14 @@ evalCell { a, b } turn player cell =
   in
     cellP * (a * toNumber turn + b)
 
--- | 8 × 8
+-- | 10 個
 type Params = Array (Array CellParams)
 
-initParams :: Int -> Int -> Params
-initParams h w = replicate h (replicate w initCellParams)
+initParams :: Params
+initParams = mapFlipped (0 .. 3) \i -> replicate (i + 1) initCellParams
 
-randParams :: Int -> Int -> Effect Params
-randParams h w = replicateA h (replicateA w randCellParams)
+randParams :: Effect Params
+randParams = for (0 .. 3) \i -> replicateA (i + 1) randCellParams
 
 crossParams :: Params -> Params -> Effect Params
 crossParams p1 p2 = do
@@ -88,7 +91,7 @@ writeToFile path name params = do
   let
     content = paramsToString params
     fileName = concat [ path, name ]
-  mkdir path
+  mkdir' path { recursive: true, mode: mkPerms all all all }
   writeTextFile UTF8 fileName content
 
 readFromFile :: String -> String -> Effect (Maybe Params)
@@ -101,17 +104,21 @@ readFromFile path name = do
 stringToParams :: String -> Maybe Params
 stringToParams = readJSON_
 
-indexB :: Params -> Int -> Int -> Maybe CellParams
-indexB board h w = do
-  row <- index board h
-  index row w
+indexP :: Params -> Int -> Int -> Maybe CellParams
+indexP params h w = do
+  let
+    h' = if h >= 4 then h - 4 else 3 - h
+    w' = if w >= 4 then w - 4 else 3 - w
+    h'' /\ w'' = if h' > w' then h' /\ w' else w' /\ h'
+  row <- index params h''
+  index row w''
 
 evalBoard :: Params -> Boolean -> Board -> Number
 evalBoard params player board =
   let
     bl /\ wh = countDisks board
     turn = bl + wh
-    cellParams h w = fromMaybe initCellParams $ indexB params h w
+    cellParams h w = fromMaybe' (\_ -> unsafeCrashWith "Error") $ indexP params h w
     evalCell' h w = evalCell (cellParams h w) turn player
   in
     sum $ mapWithIndex (\h row -> sum $ mapWithIndex (\w cell -> evalCell' h w cell) row) board

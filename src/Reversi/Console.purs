@@ -106,7 +106,7 @@ diskCountCom depth = \c ->
 evalInitCom :: Int -> Player
 evalInitCom depth = \c ->
   let
-    ip = initParams 8 8
+    ip = initParams
   in
     { strategy: \board ->
         let

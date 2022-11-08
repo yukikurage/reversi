@@ -21,15 +21,19 @@ to generate this file without the comments in this block.
   , "foldable-traversable"
   , "integers"
   , "maybe"
+  , "node-buffer"
   , "node-fs"
   , "node-path"
   , "now"
   , "numbers"
+  , "partial"
   , "prelude"
   , "random"
   , "simple-json"
+  , "st"
   , "strings"
   , "tuples"
+  , "unfoldable"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
