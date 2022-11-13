@@ -20,8 +20,10 @@ to generate this file without the comments in this block.
   , "datetime"
   , "debug"
   , "effect"
+  , "exists"
   , "foldable-traversable"
   , "integers"
+  , "leibniz"
   , "maybe"
   , "node-buffer"
   , "node-fs"
@@ -36,8 +38,8 @@ to generate this file without the comments in this block.
   , "strings"
   , "tuples"
   , "unfoldable"
+  , "unsafe-coerce"
   ]
 , packages = ./packages.dhall
-, backend = "purs-backend-es build"
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
 }

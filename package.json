@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "npx spago test",
-    "console": "npx spago build && purs-backend-es bundle-app -y -s -t console.js -m Reversi.Console -p node && node console.js",
-    "learn": "npx spago build && purs-backend-es bundle-app -y -s -t learn.js -m Reversi.Heuristics.Learn -p node && node learn.js"
+    "console": "npx spago -x spago-opt.dhall build && purs-backend-es bundle-app -y -s -t console.js -m Reversi.Console -p node && node console.js",
+    "learn": "npx spago -x spago-opt.dhall build && purs-backend-es bundle-app -y -s -t learn.js -m Reversi.Heuristics.Learn -p node && node learn.js"
   },
   "author": "",
   "license": "MIT",

@@ -9,48 +9,59 @@ Effective implementation
 import Prelude
 
 import Data.Maybe (Maybe(..))
-import Data.Tuple.Nested (type (/\), (/\))
 import Effect.Aff (Aff)
-import Reversi.System (Board, availablePositions, isGameOver, putDisk)
+import Effect.Class.Console (log)
+import Reversi.System (Board, Pos, availablePositions, boardToString, indexToString, isGameOver, putDisk)
 
-type Strategy =
-  Board -- Current board
-  -> Aff (Int /\ Int) -- (h /\ w), the position to put a disk
+type Strategy = Board -> Aff Pos
 
-type Player =
-  Boolean -- True: Black, False: White
-  -> { strategy :: Strategy
-     , turnCallback :: Board -> Aff Unit
-     , invalidCallback :: Board -> Aff Unit
-     , skipCallback :: Board -> Aff Unit
-     }
+printPlayer :: Boolean -> String
+printPlayer true = " ● "
+printPlayer false = " ○ "
 
-gameStart :: Player -> Player -> Board -> Aff Board
-gameStart mkBlack mkWhite initBoard = do
+console :: Strategy -> Strategy -> Board -> Aff Board
+console black white initBoard = do
   let
-    black = mkBlack true
-    white = mkWhite false
-
     loop :: Boolean -> Board -> Aff Board
     loop _ board | isGameOver board = pure board
     loop player board | availablePositions board player == [] = do
-      (if player then black else white).skipCallback board
-      (if player then white else black).turnCallback board
+      log $ "Skipped: " <> printPlayer player
+      loop (not player) board
+    loop player board = do
+      log $ "Next: " <> printPlayer player
+      log $ boardToString board
+      let
+        pl = if player then black else white
+      pos <- pl board
+      let
+        boardM = putDisk pos player board
+      case boardM of
+        Nothing -> do
+          log $ "Invalid position: " <> indexToString pos
+          loop player board
+        Just newB -> do
+          log $ "Put: " <> printPlayer player <> " → " <> indexToString pos <> "."
+          loop (not player) newB
+
+  loop true initBoard
+
+silent :: Strategy -> Strategy -> Board -> Aff Board
+silent black white initBoard = do
+  let
+    loop :: Boolean -> Board -> Aff Board
+    loop _ board | isGameOver board = pure board
+    loop player board | availablePositions board player == [] = do
       loop (not player) board
     loop player board = do
       let
         pl = if player then black else white
-        op = if player then white else black
-      h /\ w <- pl.strategy board
+      pos <- pl board
       let
-        boardM = putDisk h w player board
+        boardM = putDisk pos player board
       case boardM of
         Nothing -> do
-          pl.invalidCallback board
           loop player board
         Just newB -> do
-          op.turnCallback newB
           loop (not player) newB
 
-  black.turnCallback initBoard
   loop true initBoard

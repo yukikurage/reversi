@@ -20,14 +20,14 @@ import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
 import Effect.Random (randomInt)
 import Reversi.Com (miniMax)
-import Reversi.Game (Player, gameStart)
+import Reversi.Game (Strategy, silent)
 import Reversi.Heuristics.Eval (Params, crossParams, evalBoard, initParams, mutateParams, randParams, readFromFile, writeToFile)
 import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
 import Reversi.Util (maximumIs, minimumIs, randArr)
 
 main :: Effect Unit
 main = launchAff_ do
-  learn 10 100 100000
+  learn 10 410 100000
 
 learn :: Int -> Int -> Int -> Aff Unit
 learn saveMod initGen step = do
@@ -89,7 +89,7 @@ ranking params = do
     let
       p1 = fromMaybe' (\_ -> initParams) $ params !! i
       p2 = fromMaybe' (\_ -> initParams) $ params !! j
-    board <- gameStart (evalPlayer p1) (evalPlayer p2) initialBoard
+    board <- silent (evalPlayer true p1) (evalPlayer false p2) initialBoard
     let
       c1 /\ c2 = countDisks board
       score = if c1 > c2 then 1 else if c1 < c2 then -1 else 0
@@ -107,20 +107,15 @@ ranking params = do
   log $ "Ranking: " <> show rankIndex
   pure $ map (\i -> fromMaybe' (\_ -> initParams) $ params !! i) rankIndex
 
-evalPlayer :: Params -> Player
-evalPlayer params = \c ->
-  { strategy: \board -> do
-      let
-        evalF = evalBoard params
-        avs = availablePositions board c
-        nb = nextBoards board c
-        bc /\ wc = countDisks board
-        turn = bc + wc
-        points = map (miniMax evalF nextBoards (not c) 1) nb
-        is = (if c then maximumIs (toNumber turn * 0.01) else minimumIs (toNumber turn * 0.01)) points
-      i <- liftEffect $ fromMaybe 1 <$> randArr is
-      pure $ fromMaybe (-1 /\ -1) $ avs !! i
-  , turnCallback: \_ -> pure unit
-  , invalidCallback: \_ -> pure unit
-  , skipCallback: \_ -> pure unit
-  }
+evalPlayer :: Boolean -> Params -> Strategy
+evalPlayer c params board = do
+  let
+    evalF = evalBoard params
+    avs = availablePositions board c
+    nb = nextBoards board c
+    bc /\ wc = countDisks board
+    turn = bc + wc
+    points = map (miniMax evalF nextBoards (not c) 1) nb
+    is = (if c then maximumIs (toNumber turn * 0.01) else minimumIs (toNumber turn * 0.01)) points
+  i <- liftEffect $ fromMaybe 1 <$> randArr is
+  pure $ fromMaybe { h: 0, w: 0 } $ avs !! i
