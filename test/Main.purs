@@ -2,30 +2,35 @@ module Test.Main where
 
 import Prelude
 
-import Data.Int (toNumber)
-import Data.Reflectable (class Reflectable)
+import Data.Array (foldM, foldRecM, (..))
+import Data.Foldable (sum)
+import Data.Number (pow)
+import Data.Tuple (Tuple(..))
 import Effect (Effect)
-import Effect.Class.Console (logShow)
-import Reversi.Heuristics.NN (Matrix, NN, Vector, layerComb, layerRelu, mGenerate, nnPure, runNN, vGenerate, (>|>))
+import Effect.Class.Console (log)
+import Effect.Random (randomRange)
+import Reversi.Heuristics.NN (Matrix, Vector, learnNN, mRandom, nnMatrix, nnRelu, nnSigmoid, vDiff2, vRandom, vSingleton, vToA, (>|>))
 
-testNN :: forall o. Reflectable o Int => NN o o Number
-testNN = nnPure >|> layerRelu
-
-testMatrix :: Matrix 2 3 Number
-testMatrix = mGenerate \i j -> toNumber (i + j)
-
-testNN2 :: NN 3 2 Number
-testNN2 = nnPure >|> layerRelu >|> layerComb testMatrix
+testFunc :: Vector 1 Number -> Vector 1 Number
+testFunc = vToA >>> (\x -> x `pow` 2.0 + 10.0) >>> vSingleton
 
 main :: Effect Unit
 main = do
+  initMatrix1 :: Matrix 6 2 Number <- mRandom
+  initMatrix2 :: Matrix 6 7 Number <- mRandom
+  initMatrix3 :: Matrix 1 7 Number <- mRandom
   let
-    vInput :: Vector 10 Number
-    vInput = vGenerate \i -> toNumber i - 5.0
-    vOutput = runNN testNN vInput
-  logShow vOutput
-  let
-    vInput2 :: Vector 3 Number
-    vInput2 = vGenerate \i -> toNumber i - 1.0
-    vOutput2 = runNN testNN2 vInput2
-  logShow vOutput2
+    initNN = nnMatrix initMatrix1 >|> nnSigmoid >|> nnMatrix initMatrix2 >|> nnSigmoid >|> nnMatrix initMatrix3
+    step prevNN stepNum = do
+      randInput <- vSingleton <$> randomRange (-2.0) 2.0
+      let
+        expected = testFunc randInput
+        Tuple newNN output = learnNN 0.01 prevNN randInput expected
+      when (stepNum `mod` 100 == 0) do
+        -- log $ "Step " <> show stepNum
+        -- log $ "Input: " <> show randInput
+        -- log $ "Output: " <> show output
+        -- log $ "Expected: " <> show expected
+        log $ "Diff: " <> show (vDiff2 output expected)
+      pure newNN
+  void $ foldRecM step initNN $ 0 .. 100000

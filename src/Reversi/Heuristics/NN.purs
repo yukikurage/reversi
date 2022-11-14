@@ -2,19 +2,23 @@ module Reversi.Heuristics.NN where
 
 import Prelude
 
+import Control.Apply (lift2)
 import Data.Array (range, zipWith, (!!), (:))
+import Data.Array.Partial (tail)
 import Data.Exists (Exists, mkExists, runExists)
 import Data.Foldable (class Foldable, foldMap, foldl, foldr, sum)
 import Data.Functor (mapFlipped)
-import Data.Leibniz (type (~), coerce, liftLeibniz1of2)
-import Data.Maybe (Maybe)
+import Data.Maybe (Maybe(..), fromJust)
 import Data.Number (exp)
 import Data.Reflectable (class Reflectable, reflectType)
 import Data.Traversable (class Traversable, sequence, traverse)
+import Data.Tuple (Tuple(..), fst, snd)
+import Effect (Effect)
+import Effect.Random (randomRange)
+import Partial.Unsafe (unsafePartial)
 import Prim.Int (class Add)
-import Simple.JSON (class ReadForeign, class WriteForeign)
+import Simple.JSON (class ReadForeign, class WriteForeign, readJSON_, writeJSON)
 import Type.Proxy (Proxy(..))
-import Unsafe.Coerce (unsafeCoerce)
 
 newtype Vector :: Int -> Type -> Type
 newtype Vector s a = Vector (Array a)
@@ -40,6 +44,16 @@ instance (Reflectable s Int, Semigroup a) => Semigroup (Vector s a) where
 instance (Reflectable s Int, Monoid a) => Monoid (Vector s a) where
   mempty = pure mempty
 
+vSingleton :: forall a. a -> Vector 1 a
+vSingleton a = Vector [ a ]
+
+vToArr :: forall s a. Vector s a -> Array a
+vToArr (Vector a) = a
+
+vToA :: forall a. Vector 1 a -> a
+vToA = unsafePartial case _ of
+  Vector [ a ] -> a
+
 vGenerate :: forall s a. Reflectable s Int => (Int -> a) -> Vector s a
 vGenerate f =
   let
@@ -62,6 +76,9 @@ vZipWith f (Vector a) (Vector b) = Vector $ zipWith f a b
 
 vCons :: forall s s' a. Reflectable s Int => Add s 1 s' => a -> Vector s a -> Vector s' a
 vCons a (Vector v) = Vector $ a : v
+
+vTail :: forall s s' a. Reflectable s Int => Add s' 1 s => Vector s a -> Vector s' a
+vTail (Vector v) = Vector $ unsafePartial $ tail v
 
 vIndex :: forall s a. Reflectable s Int => Vector s a -> Int -> Maybe a
 vIndex (Vector v) i = v !! i
@@ -102,6 +119,9 @@ instance (Reflectable h Int, Reflectable w Int, Semigroup a) => Semigroup (Matri
 instance (Reflectable h Int, Reflectable w Int, Monoid a) => Monoid (Matrix h w a) where
   mempty = pure mempty
 
+mIndex :: forall h w a. Reflectable h Int => Reflectable w Int => Matrix h w a -> Int -> Int -> Maybe a
+mIndex (Matrix m) i j = m !! i >>= (_ !! j)
+
 mGenerate :: forall h w a. Reflectable h Int => Reflectable w Int => (Int -> Int -> a) -> Matrix h w a
 mGenerate f =
   let
@@ -130,6 +150,12 @@ mZipWith f (Matrix a) (Matrix b) = Matrix $ zipWith (zipWith f) a b
 mulMV :: forall h w a. Reflectable h Int => Reflectable w Int => Semiring a => Matrix h w a -> Vector w a -> Vector h a
 mulMV (Matrix m) (Vector v) = Vector $ mapFlipped m \row -> sum $ zipWith (*) row v
 
+transpose :: forall h w a. Reflectable h Int => Reflectable w Int => Matrix h w a -> Matrix w h a
+transpose m = mGenerate \i j -> unsafePartial $ fromJust $ mIndex m j i
+
+outer :: forall h w a b c. Reflectable h Int => Reflectable w Int => (a -> b -> c) -> Vector h a -> Vector w b -> Matrix h w c
+outer f (Vector as) (Vector bs) = Matrix $ mapFlipped as \a -> map (f a) bs
+
 relu :: forall a. Ord a => Ring a => a -> a
 relu x = max zero x
 
@@ -142,47 +168,112 @@ sigmoid x = one / (one + exp (-x))
 sigmoid' :: Number -> Number
 sigmoid' x = sigmoid x * (one - sigmoid x)
 
-data NNConsInternal :: Int -> Int -> Type -> Int -> Type
-data NNConsInternal i o a n = NNConsInternal (NN i n a) (Layer n o a)
+data NNInternal i o a model = NNInternal
+  { run :: model -> Vector i a -> Vector o a
+  , learn :: Ring a => a -> model -> Vector i a -> Vector o a -> Tuple model (Vector i a) -- 学習係数、データ、入力側ベクトル、出力側の微分ベクトル -> (次回のデータ、入力側を微分したベクトル)
+  , toString :: model -> String
+  , fromString :: String -> Maybe model
+  , model :: model
+  }
 
-type NNConsExists i o a = Exists (NNConsInternal i o a)
-
--- | A simple neural network
-data NN :: Int -> Int -> Type -> Type
-data NN i o a
-  = NNPure (i ~ o)
-  | NNCons (NNConsExists i o a)
-
-data Layer :: Int -> Int -> Type -> Type
-data Layer i o a
-  = LayerSigmoid
-  | LayerRelu
-  | LayerCombined (Matrix o i a)
+type NN i o a = Exists (NNInternal i o a)
 
 runNN :: forall i o. Reflectable i Int => Reflectable o Int => NN i o Number -> Vector i Number -> Vector o Number
-runNN nn input = case nn of
-  NNPure leibniz -> coerce (liftLeibniz1of2 leibniz) input
-  NNCons ex -> runExists
-    ( \(NNConsInternal prevNN layer) -> case layer of
-        LayerSigmoid -> sigmoid <$> runNN (unsafeCoerce prevNN :: NN i o Number) input
-        LayerRelu -> relu <$> runNN (unsafeCoerce prevNN :: NN i o Number) input
-        LayerCombined matrix -> mulMV (unsafeCoerce matrix :: Matrix o i Number) $ (runNN (unsafeCoerce prevNN :: NN i i Number) input)
-    )
-    ex
+runNN nn input = runExists (\(NNInternal { run, model }) -> run model input) nn
 
-layerSig :: forall i. Reflectable i Int => Layer i i Number
-layerSig = LayerSigmoid
+learnNN :: forall i o a. Reflectable i Int => Reflectable o Int => Ring a => a -> NN i o a -> Vector i a -> Vector o a -> Tuple (NN i o a) (Vector o a)
+learnNN learningRate nn input outputTarget =
+  let
+    f :: forall model. NNInternal i o a model -> Tuple (NN i o a) (Vector o a)
+    f (NNInternal internal) =
+      let
+        output = internal.run internal.model input
+        outputDiff = lift2 (-) output outputTarget
+        Tuple model' _ = internal.learn learningRate internal.model input outputDiff
+      in
+        Tuple (mkExists $ NNInternal internal { model = model' }) output
+  in
+    runExists f nn
 
-layerRelu :: forall i. Reflectable i Int => Layer i i Number
-layerRelu = LayerRelu
+showNN :: forall i o. Reflectable i Int => Reflectable o Int => NN i o Number -> String
+showNN nn = runExists (\(NNInternal { toString, model }) -> toString model) nn
 
-layerComb :: forall i o. Reflectable i Int => Reflectable o Int => Matrix o i Number -> Layer i o Number
-layerComb = LayerCombined
+vDiff2 :: forall i a. Ring a => Reflectable i Int => Vector i a -> Vector i a -> a
+vDiff2 v1 v2 = sum $ lift2 (\x y -> (x - y) * (x - y)) v1 v2
 
-nnCons :: forall i o a. Reflectable i Int => Reflectable o Int => NN i a Number -> Layer a o Number -> NN i o Number
-nnCons nn layer = NNCons $ mkExists (NNConsInternal nn layer)
+nnFunc :: forall i a. Reflectable i Int => (a -> a) -> (a -> a) -> NN i i a
+nnFunc f fDiff = mkExists $ NNInternal
+  { run: \_ -> map f
+  , learn: \_ _ input outputDiff -> Tuple unit $ lift2 (\i oDiff -> fDiff i * oDiff) input outputDiff
+  , toString: const ""
+  , fromString: const $ Just unit
+  , model: unit
+  }
 
-nnPure :: forall i. Reflectable i Int => NN i i Number
-nnPure = NNPure identity
+nnSigmoid :: forall i. Reflectable i Int => NN i i Number
+nnSigmoid = nnFunc sigmoid sigmoid'
 
-infixl 4 nnCons as >|>
+nnRelu :: forall i. Reflectable i Int => NN i i Number
+nnRelu = nnFunc relu relu'
+
+nnAppend :: forall i m o a. Reflectable i Int => Reflectable m Int => Reflectable o Int => NN i m a -> NN m o a -> NN i o a
+nnAppend nnLeft nnRight =
+  let
+    g :: forall modelLeft modelRight. NNInternal i m a modelLeft -> NNInternal m o a modelRight -> NN i o a
+    g (NNInternal left) (NNInternal right) = mkExists $ NNInternal
+      { run: \(Tuple lModel rModel) input -> right.run rModel $ left.run lModel input
+      , learn: \learningRate (Tuple lModel rModel) input outputDiff ->
+          let
+            rInput = left.run lModel input
+            Tuple rModel' rInputDiff = right.learn learningRate rModel rInput outputDiff
+            Tuple lModel' lInputDiff = left.learn learningRate lModel input rInputDiff
+          in
+            Tuple (Tuple lModel' rModel') lInputDiff
+      , toString: \model -> writeJSON $ [ left.toString $ fst model, right.toString $ snd model ]
+      , fromString: \str -> do
+          arr <- readJSON_ str
+          Tuple lStr rStr <- case arr of
+            [ lStr, rStr ] -> pure (Tuple lStr rStr)
+            _ -> Nothing
+          lModel <- left.fromString lStr
+          rModel <- right.fromString rStr
+          pure $ Tuple lModel rModel
+      , model: Tuple left.model right.model
+      }
+
+    f :: forall modelLeft. NNInternal i m a modelLeft -> NN i o a
+    f nnInternalLeft = runExists (g nnInternalLeft) nnRight
+  in
+    runExists f nnLeft
+
+nnMatrix :: forall i o i' a. Reflectable o Int => Reflectable i' Int => Semiring a => Reflectable i Int => Add i 1 i' => WriteForeign a => ReadForeign a => Matrix o i' a -> Exists (NNInternal i o a)
+nnMatrix initMatrix = mkExists $ NNInternal
+  { run: \matrix input -> mulMV matrix $ vCons one input
+  , learn: \leaningRate matrix input outputDiff ->
+      let
+        input' = vCons one input
+        inputDiff = mulMV (transpose matrix) outputDiff
+        matrix' = lift2 (-) matrix (map (_ * leaningRate) $ outer (*) outputDiff input')
+      in
+        Tuple matrix' $ vTail inputDiff
+  , toString: writeJSON
+  , fromString: readJSON_
+  , model: initMatrix
+  }
+
+mRandom :: forall h w. Reflectable h Int => Reflectable w Int => Effect (Matrix h w Number)
+mRandom = mGenerateA \_ _ -> randomRange (-1.0) 1.0
+
+vRandom :: forall n. Reflectable n Int => Effect (Vector n Number)
+vRandom = vGenerateA \_ -> randomRange (-1.0) 1.0
+
+nnIdentity :: forall i. Reflectable i Int => NN i i Number
+nnIdentity = mkExists $ NNInternal
+  { run: \_ -> identity
+  , learn: \_ _ _ outputDiff -> Tuple unit outputDiff
+  , toString: const ""
+  , fromString: const $ Just unit
+  , model: unit
+  }
+
+infixl 4 nnAppend as >|>
