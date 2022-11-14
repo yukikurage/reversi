@@ -3,7 +3,7 @@ module Reversi.Heuristics.NN where
 import Prelude
 
 import Control.Apply (lift2)
-import Data.Array (range, zipWith, (!!), (:))
+import Data.Array (drop, length, range, take, zipWith, (!!), (:))
 import Data.Array.Partial (tail)
 import Data.Exists (Exists, mkExists, runExists)
 import Data.Foldable (class Foldable, foldMap, foldl, foldr, sum)
@@ -47,8 +47,13 @@ instance (Reflectable s Int, Monoid a) => Monoid (Vector s a) where
 vSingleton :: forall a. a -> Vector 1 a
 vSingleton a = Vector [ a ]
 
-vToArr :: forall s a. Vector s a -> Array a
-vToArr (Vector a) = a
+vToArray :: forall s a. Vector s a -> Array a
+vToArray (Vector a) = a
+
+vFromArray :: forall s a. Reflectable s Int => Array a -> Maybe (Vector s a)
+vFromArray a =
+  if length a == reflectType (Proxy :: Proxy s) then Just (Vector a)
+  else Nothing
 
 vToA :: forall a. Vector 1 a -> a
 vToA = unsafePartial case _ of
@@ -85,6 +90,13 @@ vIndex (Vector v) i = v !! i
 
 vAppend :: forall s s' s'' a. Reflectable s Int => Add s s' s'' => Vector s a -> Vector s' a -> Vector s'' a
 vAppend (Vector a) (Vector b) = Vector $ a <> b
+
+vDivide :: forall s s' s'' a. Reflectable s Int => Add s s' s'' => Vector s'' a -> Tuple (Vector s a) (Vector s' a)
+vDivide (Vector v) =
+  let
+    s = reflectType (Proxy :: Proxy s)
+  in
+    Tuple (Vector $ take s v) (Vector $ drop s v)
 
 newtype Matrix :: Int -> Int -> Type -> Type
 newtype Matrix h w a = Matrix (Array (Array a))
@@ -195,8 +207,16 @@ learnNN learningRate nn input outputTarget =
   in
     runExists f nn
 
-showNN :: forall i o. Reflectable i Int => Reflectable o Int => NN i o Number -> String
-showNN nn = runExists (\(NNInternal { toString, model }) -> toString model) nn
+nnToString :: forall i o a. NN i o a -> String
+nnToString nn = runExists (\(NNInternal { toString, model }) -> toString model) nn
+
+nnLoadString :: forall i o a. String -> NN i o a -> Maybe (NN i o a)
+nnLoadString str nn = runExists
+  ( \(NNInternal internal) -> case internal.fromString str of
+      Just model -> Just $ mkExists $ NNInternal internal { model = model }
+      Nothing -> Nothing
+  )
+  nn
 
 vDiff2 :: forall i a. Ring a => Reflectable i Int => Vector i a -> Vector i a -> a
 vDiff2 v1 v2 = sum $ lift2 (\x y -> (x - y) * (x - y)) v1 v2
@@ -219,8 +239,8 @@ nnRelu = nnFunc relu relu'
 nnAppend :: forall i m o a. Reflectable i Int => Reflectable m Int => Reflectable o Int => NN i m a -> NN m o a -> NN i o a
 nnAppend nnLeft nnRight =
   let
-    g :: forall modelLeft modelRight. NNInternal i m a modelLeft -> NNInternal m o a modelRight -> NN i o a
-    g (NNInternal left) (NNInternal right) = mkExists $ NNInternal
+    f :: forall modelLeft modelRight. NNInternal i m a modelLeft -> NNInternal m o a modelRight -> NN i o a
+    f (NNInternal left) (NNInternal right) = mkExists $ NNInternal
       { run: \(Tuple lModel rModel) input -> right.run rModel $ left.run lModel input
       , learn: \learningRate (Tuple lModel rModel) input outputDiff ->
           let
@@ -240,11 +260,79 @@ nnAppend nnLeft nnRight =
           pure $ Tuple lModel rModel
       , model: Tuple left.model right.model
       }
-
-    f :: forall modelLeft. NNInternal i m a modelLeft -> NN i o a
-    f nnInternalLeft = runExists (g nnInternalLeft) nnRight
   in
-    runExists f nnLeft
+    runExists (\nnInternalLeft -> runExists (f nnInternalLeft) nnRight) nnLeft
+
+-- | Append Vertically
+nnStack
+  :: forall i1 o1 i2 o2 i o a
+   . Reflectable i1 Int
+  => Reflectable o1 Int
+  => Reflectable i2 Int
+  => Reflectable o2 Int
+  => Reflectable i Int
+  => Reflectable o Int
+  => Add i1 i2 i
+  => Add o1 o2 o
+  => NN i1 o1 a
+  -> NN i2 o2 a
+  -> NN i o a
+nnStack nnTop nnBottom =
+  let
+    f :: forall modelTop modelBottom. NNInternal i1 o1 a modelTop -> NNInternal i2 o2 a modelBottom -> NN i o a
+    f (NNInternal top) (NNInternal bottom) = mkExists $ NNInternal
+      { run: \(Tuple tModel bModel) input ->
+          let
+            Tuple tInput bInput = vDivide input
+          in
+            vAppend (top.run tModel tInput) (bottom.run bModel bInput)
+      , learn: \learningRate (Tuple tModel bModel) input outputDiff ->
+          let
+            Tuple tInput bInput = vDivide input
+            Tuple tOutputDiff bOutputDiff = vDivide outputDiff
+            Tuple tModel' tInputDiff = top.learn learningRate tModel tInput tOutputDiff
+            Tuple bModel' bInputDiff = bottom.learn learningRate bModel bInput bOutputDiff
+          in
+            Tuple (Tuple tModel' bModel') $ vAppend tInputDiff bInputDiff
+      , toString: \model -> writeJSON $ [ top.toString $ fst model, bottom.toString $ snd model ]
+      , fromString: \str -> do
+          arr <- readJSON_ str
+          Tuple lStr rStr <- case arr of
+            [ lStr, rStr ] -> pure (Tuple lStr rStr)
+            _ -> Nothing
+          lModel <- top.fromString lStr
+          rModel <- bottom.fromString rStr
+          pure $ Tuple lModel rModel
+      , model: Tuple top.model bottom.model
+      }
+  in
+    runExists (\nnInternalTop -> runExists (f nnInternalTop) nnBottom) nnTop
+
+-- | Use same model
+nnStackCopy :: forall i i' o o' a. Reflectable i Int => Reflectable o Int => Reflectable i' Int => Reflectable o' Int => Add i i i' => Add o o o' => NN i o a -> NN i' o' a
+nnStackCopy nn =
+  let
+    f :: forall model. NNInternal i o a model -> NN i' o' a
+    f (NNInternal internal) = mkExists $ NNInternal
+      { run: \model input ->
+          let
+            Tuple tInput bInput = vDivide input
+          in
+            vAppend (internal.run model tInput) (internal.run model bInput)
+      , learn: \learningRate model input outputDiff ->
+          let
+            Tuple tInput bInput = vDivide input
+            Tuple tOutputDiff bOutputDiff = vDivide outputDiff
+            Tuple model' tInputDiff = internal.learn learningRate model tInput tOutputDiff
+            Tuple model'' bInputDiff = internal.learn learningRate model' bInput bOutputDiff
+          in
+            Tuple model'' $ vAppend tInputDiff bInputDiff
+      , toString: internal.toString
+      , fromString: internal.fromString
+      , model: internal.model
+      }
+  in
+    runExists f nn
 
 nnMatrix :: forall i o i' a. Reflectable o Int => Reflectable i' Int => Semiring a => Reflectable i Int => Add i 1 i' => WriteForeign a => ReadForeign a => Matrix o i' a -> Exists (NNInternal i o a)
 nnMatrix initMatrix = mkExists $ NNInternal
@@ -271,6 +359,15 @@ nnIdentity :: forall i. Reflectable i Int => NN i i Number
 nnIdentity = mkExists $ NNInternal
   { run: \_ -> identity
   , learn: \_ _ _ outputDiff -> Tuple unit outputDiff
+  , toString: const ""
+  , fromString: const $ Just unit
+  , model: unit
+  }
+
+nnSum :: forall i. Reflectable i Int => NN i 1 Number
+nnSum = mkExists $ NNInternal
+  { run: \_ -> sum >>> vSingleton
+  , learn: \_ _ _ outputDiff -> Tuple unit $ pure $ vToA outputDiff
   , toString: const ""
   , fromString: const $ Just unit
   , model: unit

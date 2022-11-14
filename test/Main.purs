@@ -2,14 +2,15 @@ module Test.Main where
 
 import Prelude
 
-import Data.Array (foldM, foldRecM, (..))
-import Data.Foldable (sum)
+import Data.Array (foldRecM, (..))
 import Data.Number (pow)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
-import Effect.Class.Console (log)
+import Effect.Class.Console (log, logShow)
 import Effect.Random (randomRange)
-import Reversi.Heuristics.NN (Matrix, Vector, learnNN, mRandom, nnMatrix, nnRelu, nnSigmoid, vDiff2, vRandom, vSingleton, vToA, (>|>))
+import Reversi.Heuristics.Eval (evalBoard, randEvalNN)
+import Reversi.Heuristics.NN (Matrix, Vector, learnNN, mRandom, nnMatrix, nnSigmoid, vDiff2, vSingleton, vToA, (>|>))
+import Reversi.System (initialBoard)
 
 testFunc :: Vector 1 Number -> Vector 1 Number
 testFunc = vToA >>> (\x -> x `pow` 2.0 + 10.0) >>> vSingleton
@@ -33,4 +34,6 @@ main = do
         -- log $ "Expected: " <> show expected
         log $ "Diff: " <> show (vDiff2 output expected)
       pure newNN
-  void $ foldRecM step initNN $ 0 .. 100000
+  void $ foldRecM step initNN $ 0 .. 10000
+  evalNN <- randEvalNN
+  logShow $ evalBoard evalNN $ initialBoard

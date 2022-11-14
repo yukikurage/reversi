@@ -261,3 +261,6 @@ countDisks b =
     count c = sum $ map (sum <<< map (\cell -> if cell == c then 1 else 0)) b
   in
     count (Just true) /\ count (Just false)
+
+flipAll :: Board -> Board
+flipAll b = map (map (map not)) b

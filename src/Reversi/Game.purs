@@ -8,8 +8,12 @@ Effective implementation
 
 import Prelude
 
+import Control.Monad.ST.Global (toEffect)
+import Data.Array.ST as AST
 import Data.Maybe (Maybe(..))
+import Data.Tuple.Nested (type (/\), (/\))
 import Effect.Aff (Aff)
+import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
 import Reversi.System (Board, Pos, availablePositions, boardToString, indexToString, isGameOver, putDisk)
 
@@ -19,8 +23,10 @@ printPlayer :: Boolean -> String
 printPlayer true = " ● "
 printPlayer false = " ○ "
 
-console :: Strategy -> Strategy -> Board -> Aff Board
+console :: Strategy -> Strategy -> Board -> Aff (Board /\ Array Board)
 console black white initBoard = do
+  arrST <- liftEffect $ toEffect AST.new
+  _ <- liftEffect $ toEffect $ AST.push initBoard arrST
   let
     loop :: Boolean -> Board -> Aff Board
     loop _ board | isGameOver board = pure board
@@ -40,13 +46,18 @@ console black white initBoard = do
           log $ "Invalid position: " <> indexToString pos
           loop player board
         Just newB -> do
+          _ <- liftEffect $ toEffect $ AST.push newB arrST
           log $ "Put: " <> printPlayer player <> " → " <> indexToString pos <> "."
           loop (not player) newB
 
-  loop true initBoard
+  last <- loop true initBoard
+  history <- liftEffect $ toEffect $ AST.freeze arrST
+  pure $ last /\ history
 
-silent :: Strategy -> Strategy -> Board -> Aff Board
+silent :: Strategy -> Strategy -> Board -> Aff (Board /\ Array Board)
 silent black white initBoard = do
+  arrST <- liftEffect $ toEffect AST.new
+  _ <- liftEffect $ toEffect $ AST.push initBoard arrST
   let
     loop :: Boolean -> Board -> Aff Board
     loop _ board | isGameOver board = pure board
@@ -62,6 +73,9 @@ silent black white initBoard = do
         Nothing -> do
           loop player board
         Just newB -> do
+          _ <- liftEffect $ toEffect $ AST.push newB arrST
           loop (not player) newB
 
-  loop true initBoard
+  last <- loop true initBoard
+  history <- liftEffect $ toEffect $ AST.freeze arrST
+  pure $ last /\ history

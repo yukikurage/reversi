@@ -11,7 +11,7 @@ import Prelude
 import Data.Array (length, (!!))
 import Data.DateTime.Instant (unInstant)
 import Data.Int (toNumber)
-import Data.Maybe (fromMaybe, fromMaybe')
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
 import Effect.Aff (Milliseconds(..), launchAff_)
@@ -21,7 +21,7 @@ import Effect.Now (now)
 import Effect.Random (randomInt)
 import Reversi.Com (diskCount, miniMax)
 import Reversi.Game (Strategy, console)
-import Reversi.Heuristics.Eval (Params, evalBoard, initParams, readFromFile)
+import Reversi.Heuristics.Eval (EvalNN, evalBoard, loadEvalNN, randEvalNN)
 import Reversi.System (availablePositions, boardToString, countDisks, initialBoard, nextBoards, stringToIndex)
 import Reversi.Util (maximumIs, minimumIs, randArr)
 import Stdin (questionValid)
@@ -41,19 +41,19 @@ type Player = Boolean -- True: Black, False: White
   }
 -}
 
-gen ∷ Int
-gen = 410
-
 main :: Effect Unit
 main = launchAff_ do
-  params <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/" <> show gen) "0.json"
-  params100 <- liftEffect $ fromMaybe' (\_ -> initParams) <$> readFromFile ("gen/100") "0.json"
-  lastBoard <- console (evalInitCom true params100) (evalInitCom false params) initialBoard
-  log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
-  let
-    b /\ w = countDisks lastBoard
-  log $ "Black: " <> show b <> ", White: " <> show w
-  log $ "Winner: " <> if b > w then "Black" else "White"
+  initEvalNN <- liftEffect $ randEvalNN
+  evalNNM <- liftEffect $ loadEvalNN "100" $ initEvalNN
+  case evalNNM of
+    Just evalNN -> do
+      lastBoard /\ _ <- console (evalCom true evalNN) (diskCountCom false 3) initialBoard
+      log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
+      let
+        b /\ w = countDisks lastBoard
+      log $ "Black: " <> show b <> ", White: " <> show w
+      log $ "Winner: " <> if b > w then "Black" else "White"
+    Nothing -> pure unit
 
 manual :: Strategy
 manual _ = do
@@ -82,8 +82,8 @@ diskCountCom c depth board = do
   i <- liftEffect $ fromMaybe 1 <$> randArr is
   pure $ fromMaybe { h: 0, w: 0 } $ avs !! i
 
-evalInitCom :: Boolean -> Params -> Strategy
-evalInitCom c params board = do
+evalCom :: Boolean -> EvalNN -> Strategy
+evalCom c evalNN board = do
   let
     bc /\ wc = countDisks board
     turn = bc + wc
@@ -94,7 +94,7 @@ evalInitCom c params board = do
     go :: Int -> Effect (Array Number)
     go n = do
       let
-        p = map (miniMax (if turn < 56 then evalBoard params else diskCount) nextBoards (not c) n) nb
+        p = map (miniMax (if turn < 56 then evalBoard evalNN else diskCount) nextBoards (not c) n) nb
       Milliseconds et <- liftEffect $ unInstant <$> now
       if et - st < 500.0 && n < 20 then
         go (n + 1)
