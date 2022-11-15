@@ -4,16 +4,15 @@ import Prelude
 
 import Data.Array (foldRecM, take, (!!), (..))
 import Data.DateTime.Instant (unInstant)
-import Data.Maybe (Maybe(..), fromJust, fromMaybe)
-import Data.Tuple (Tuple(..))
-import Data.Tuple.Nested ((/\))
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Tuple (Tuple(..), uncurry)
+import Data.Tuple.Nested (type (/\), (/\))
 import Effect (Effect)
 import Effect.Aff (Aff, Milliseconds(..), launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
 import Effect.Now (now)
 import Effect.Random (randomRange)
-import Partial.Unsafe (unsafePartial)
 import Reversi.Com (diskCount, miniMax)
 import Reversi.Game (Strategy, silent)
 import Reversi.Heuristics.Eval (EvalNN, evalBoard, learnGameEvalNN, loadEvalNN, randEvalNN, saveEvalNN)
@@ -29,29 +28,30 @@ steps = 1000000
 main :: Effect Unit
 main = do
   initEvalNN <- liftEffect $ randEvalNN
-  evalNNM <- liftEffect $ loadEvalNN (show initGen) $ initEvalNN
+  initEvalNN2 <- liftEffect $ randEvalNN
+  evalNNM /\ evalNNM2 <- liftEffect $ loadEvalNN (show initGen) initEvalNN initEvalNN2
   launchAff_ do
-    learned <- foldRecM step (unsafePartial $ fromJust evalNNM) $ initGen .. (initGen + steps - 1)
-    liftEffect $ saveEvalNN (show $ initGen + steps) learned
+    learned <- foldRecM step (evalNNM /\ evalNNM2) $ initGen .. (initGen + steps - 1)
+    liftEffect $ uncurry (saveEvalNN (show $ initGen + steps)) $ learned
 
-step :: EvalNN -> Int -> Aff EvalNN
-step evalNN i = do
+step :: (EvalNN /\ EvalNN) -> Int -> Aff (Tuple EvalNN EvalNN)
+step (evalNN1 /\ evalNN2) i = do
   log $ "Step: " <> show i
-  if i `mod` 100 == 0 then liftEffect $ saveEvalNN (show i) evalNN
+  if i `mod` 100 == 0 then liftEffect $ saveEvalNN (show i) evalNN1 evalNN2
   else pure unit
-  last /\ history <- silent (com true evalNN) (com false evalNN) initialBoard
+  last /\ history <- silent (com true evalNN1 evalNN2) (com false evalNN1 evalNN2) initialBoard
   let
     b /\ w = countDisks last
     isWinB
       | b > w = Just true
       | b < w = Just false
       | otherwise = Nothing
-    Tuple newNN diff = learnGameEvalNN 0.05 evalNN (take 58 history) isWinB
+    Tuple newNN diff = learnGameEvalNN 0.05 evalNN1 evalNN2 (take 58 history) isWinB
   log $ "Diff: " <> show diff
   pure newNN
 
-com :: Boolean -> EvalNN -> Strategy
-com c evalNN board = do
+com :: Boolean -> EvalNN -> EvalNN -> Strategy
+com c evalNN evalNN2 board = do
   r <- liftEffect $ randomRange 0.0 1.0
   let
     bc /\ wc = countDisks board
@@ -66,7 +66,7 @@ com c evalNN board = do
       go :: Int -> Effect (Array Number)
       go n = do
         let
-          p = map (miniMax (evalBoard evalNN) nextBoards (not c) n) nb
+          p = map (miniMax (evalBoard evalNN evalNN2) nextBoards (not c) n) nb
         Milliseconds et <- liftEffect $ unInstant <$> now
         if et - st < 50.0 && n < 20 then
           go (n + 1)
