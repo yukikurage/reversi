@@ -12,7 +12,9 @@ import Data.Array (foldl, null)
 import Data.Int (toNumber)
 import Data.Number (infinity)
 import Data.Tuple.Nested ((/\))
-import Reversi.System (Board, countDisks)
+import Debug (spy)
+import Reversi.System (Board, boardToString, countDisks)
+import Unsafe.Coerce (unsafeCoerce)
 
 -- | miniMax
 -- | 現在から最善手を打った時の最終的な盤面のスコアを返す
@@ -30,13 +32,14 @@ miniMax evalF getNext player depth target =
     if null nexts then
       let
         nextsOp = getNext target $ not player
+        _ = map (boardToString <<< unsafeCoerce) nextsOp
       in
         if null nextsOp then
           evalF target
         else if player then
-          foldl (\acc x -> max (miniMax evalF getNext player (depth - 1) x) acc) (-infinity) nextsOp
-        else
           foldl (\acc x -> min (miniMax evalF getNext player (depth - 1) x) acc) infinity nextsOp
+        else
+          foldl (\acc x -> max (miniMax evalF getNext player (depth - 1) x) acc) (-infinity) nextsOp
 
     else if player then
       foldl (\acc x -> max (miniMax evalF getNext (not player) (depth - 1) x) acc) (-infinity) nexts
