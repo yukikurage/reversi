@@ -8,10 +8,10 @@ Reversi using the console.
 
 import Prelude
 
-import Data.Array (length, (!!))
+import Data.Array (catMaybes, length, zipWith, (!!))
 import Data.DateTime.Instant (unInstant)
-import Data.Int (toNumber)
 import Data.Maybe (fromJust, fromMaybe)
+import Data.String (joinWith)
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
 import Effect.Aff (Milliseconds(..), launchAff_)
@@ -24,7 +24,7 @@ import Partial.Unsafe (unsafePartial)
 import Reversi.Com (diskCount, miniMax)
 import Reversi.Game (Strategy, console)
 import Reversi.Heuristics.Eval (EvalNN, evalBoard, loadEvalNN, randEvalNN)
-import Reversi.System (availablePositions, boardToString, countDisks, initialBoard, nextBoards, stringToIndex)
+import Reversi.System (availablePositions, boardToString, countDisks, indexToString, initialBoard, nextBoards, putDisk, stringToIndex)
 import Reversi.Util (maximumIs, minimumIs, randArr)
 import Stdin (questionValid)
 
@@ -47,11 +47,11 @@ main :: Effect Unit
 main = launchAff_ do
   initEvalNN <- liftEffect $ randEvalNN
   evalNNM1 <- liftEffect $ loadEvalNN "1000" initEvalNN
-  evalNNM2 <- liftEffect $ loadEvalNN "18000" initEvalNN
+  evalNNM2 <- liftEffect $ loadEvalNN "63600" initEvalNN
   let
     evalNN1 = unsafePartial $ fromJust evalNNM1
     evalNN2 = unsafePartial $ fromJust evalNNM2
-  lastBoard /\ _ <- console (evalCom true evalNN2) (evalCom false evalNN1) initialBoard
+  lastBoard /\ _ <- console (evalCom true evalNN2) (manual evalNN2) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
@@ -63,12 +63,11 @@ manual :: EvalNN -> Strategy
 manual evalNN b = do
   log $ "Strength: " <> show (evalBoard evalNN b)
   log "Please input the position to put a disk."
-  pos <- questionValid "h: " stringToIndex $ log "Invalid input."
+  pos <- questionValid "> " stringToIndex $ log "Invalid input."
   pure pos
 
 randomCom :: Boolean -> Strategy
 randomCom c board = liftEffect do
-  log "Please input the position to put a disk."
   let
     avs = availablePositions board c
     len = length avs
@@ -92,19 +91,22 @@ evalCom c evalNN board = do
     bc /\ wc = countDisks board
     turn = bc + wc
     avs = availablePositions board c
-    nb = nextBoards board c
+    nb = catMaybes do
+      p <- avs
+      pure $ putDisk p c board
   Milliseconds st <- liftEffect $ unInstant <$> now
   let
     go :: Int -> Effect (Array Number)
     go n = do
       let
-        p = map (miniMax (if turn < 54 then evalBoard evalNN else diskCount) nextBoards (not c) n) nb
+        p = map (miniMax (evalBoard evalNN) nextBoards (not c) n) nb
       Milliseconds et <- liftEffect $ unInstant <$> now
       if et - st < 300.0 && n < 20 then
         go (n + 1)
       else
         pure p
-  points <- liftEffect $ go 2
+  points <- if turn < 57 then (liftEffect $ go 1) else pure $ map (miniMax diskCount nextBoards (not c) 10) nb
+  log $ joinWith "\n" $ zipWith (\pos point -> indexToString pos <> " " <> show point) avs points
   let
     is = (if c then maximumIs 0.0001 else minimumIs 0.0001) points
   i <- liftEffect $ fromMaybe 0 <$> randArr is
