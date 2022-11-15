@@ -71,32 +71,52 @@ boardToInput board = unsafePartial $ fromJust do
 randEvalNN :: Effect EvalNN
 randEvalNN = do
   matrix1 :: Matrix 8 17 Number <- mRandom
-  matrix2 :: Matrix 1 9 Number <- mRandom
+  matrix2 :: Matrix 8 9 Number <- mRandom
+  matrix3 :: Matrix 1 9 Number <- mRandom
   let
-    nnPart = nnMatrix matrix1 >|> nnRelu >|> nnMatrix matrix2 >|> nnSigmoid
+    nnPart = nnMatrix matrix1 >|> nnRelu >|> nnMatrix matrix2 >|> nnRelu >|> nnMatrix matrix3 >|> nnSigmoid
     nnFour = nnStackCopy (nnStackCopy nnPart) >|> nnSum
     nnStacked = nnFour `nnStack` nnFour `nnStack` nnPart
-  matrix3 :: Matrix 1 4 Number <- mRandom
-  pure $ nnStacked >|> nnMatrix matrix3 >|> nnSigmoid
+  matrix4 :: Matrix 1 4 Number <- mRandom
+  pure $ nnStacked >|> nnMatrix matrix4 >|> nnSigmoid
 
 evalBoard :: EvalNN -> Board -> Number
 evalBoard nn board = vToA $ runNN nn $ boardToInput board
 
-learnEvalNN :: Number -> EvalNN -> Board -> Boolean -> EvalNN
+learnEvalNN :: Number -> EvalNN -> Board -> Maybe Boolean -> Tuple EvalNN Number
 learnEvalNN learningRate nn board teach =
   let
-    t = if teach then 1.0 else 0.0
-    Tuple newNN _ = learnNN learningRate nn (boardToInput board) $ vSingleton t
+    t = case teach of
+      Just true -> 1.0
+      Just false -> 0.0
+      Nothing -> 0.5
+    Tuple newNN output = learnNN learningRate nn (boardToInput board) $ vSingleton t
+    d = (vToA output - t) * (vToA output - t)
   in
-    newNN
+    Tuple newNN d
 
-learnGameEvalNN :: Number -> EvalNN -> Array Board -> Boolean -> EvalNN
+learnGameEvalNN :: Number -> EvalNN -> Array Board -> Maybe Boolean -> Tuple EvalNN Number
 learnGameEvalNN learningRate nn history teach =
   let
-    nn' = foldl (\acc b -> learnEvalNN learningRate acc b teach) nn history
-    nn'' = foldl (\acc b -> learnEvalNN learningRate acc (flipAll b) $ not teach) nn' history
+    nn' = foldl
+      ( \(Tuple acc d) b ->
+          let
+            Tuple newNN dAdd = learnEvalNN learningRate acc b teach
+          in
+            Tuple newNN (d + dAdd)
+      )
+      (Tuple nn 0.0)
+      history
   in
-    nn''
+    foldl
+      ( \(Tuple acc d) b ->
+          let
+            Tuple newNN dAdd = learnEvalNN learningRate acc (flipAll b) (map not teach)
+          in
+            Tuple newNN (d + dAdd)
+      )
+      nn'
+      history
 
 saveEvalNN :: String -> EvalNN -> Effect Unit
 saveEvalNN filename evalNN = do

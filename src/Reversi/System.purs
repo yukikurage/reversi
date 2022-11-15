@@ -208,14 +208,14 @@ stringToIndex :: String -> Maybe Pos
 stringToIndex s = case take 2 $ toCharArray s of
   [ hs, ws ] -> do
     let
-      h = toCharCode hs - toCharCode 'A'
-      w = toCharCode ws - toCharCode '1'
+      w = toCharCode hs - toCharCode 'A'
+      h = toCharCode ws - toCharCode '1'
     guard $ h >= 0 && h < size && w >= 0 && w < size
     pure { h, w }
   _ -> Nothing
 
 indexToString :: Pos -> String
-indexToString { h, w } = fromCharArray $ catMaybes [ fromCharCode $ toCharCode 'A' + h, fromCharCode $ toCharCode '1' + w ]
+indexToString { h, w } = fromCharArray $ catMaybes [ fromCharCode $ toCharCode 'A' + w, fromCharCode $ toCharCode '1' + h ]
 
 -- | Put disk on board and compute next board
 -- | h, w, color, board -> next board
