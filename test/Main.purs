@@ -8,7 +8,6 @@ import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Class.Console (log, logShow)
 import Effect.Random (randomRange)
-import Reversi.Heuristics.Eval (evalBoard, randEvalNN)
 import Reversi.Heuristics.NN (Matrix, Vector, learnNN, mRandom, nnMatrix, nnSigmoid, vDiff2, vSingleton, vToA, (>|>))
 import Reversi.System (initialBoard)
 
@@ -35,5 +34,3 @@ main = do
         log $ "Diff: " <> show (vDiff2 output expected)
       pure newNN
   void $ foldRecM step initNN $ 0 .. 10000
-  evalNN <- randEvalNN
-  logShow $ evalBoard evalNN $ initialBoard
