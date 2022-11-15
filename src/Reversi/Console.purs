@@ -47,7 +47,7 @@ main :: Effect Unit
 main = launchAff_ do
   initEvalNN <- liftEffect $ randEvalNN
   evalNNM1 <- liftEffect $ loadEvalNN "1000" initEvalNN
-  evalNNM2 <- liftEffect $ loadEvalNN "63600" initEvalNN
+  evalNNM2 <- liftEffect $ loadEvalNN "67400" initEvalNN
   let
     evalNN1 = unsafePartial $ fromJust evalNNM1
     evalNN2 = unsafePartial $ fromJust evalNNM2
@@ -101,11 +101,11 @@ evalCom c evalNN board = do
       let
         p = map (miniMax (evalBoard evalNN) nextBoards (not c) n) nb
       Milliseconds et <- liftEffect $ unInstant <$> now
-      if et - st < 300.0 && n < 20 then
+      if et - st < 500.0 && n < 20 then
         go (n + 1)
       else
         pure p
-  points <- if turn < 57 then (liftEffect $ go 1) else pure $ map (miniMax diskCount nextBoards (not c) 10) nb
+  points <- if turn < 57 then (liftEffect $ go 2) else pure $ map (miniMax diskCount nextBoards (not c) 10) nb
   log $ joinWith "\n" $ zipWith (\pos point -> indexToString pos <> " " <> show point) avs points
   let
     is = (if c then maximumIs 0.0001 else minimumIs 0.0001) points
