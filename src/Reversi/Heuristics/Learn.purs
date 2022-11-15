@@ -20,7 +20,7 @@ import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
 import Reversi.Util (maximumIs, minimumIs, randArr)
 
 initGen :: Int
-initGen = 68800
+initGen = 69100
 
 steps :: Int
 steps = 1000000
