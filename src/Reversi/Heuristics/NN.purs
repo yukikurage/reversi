@@ -3,21 +3,21 @@ module Reversi.Heuristics.NN where
 import Prelude
 
 import Control.Apply (lift2)
-import Data.Array (drop, length, range, take, zipWith, (!!), (:))
+import Data.Array (drop, foldM, length, range, snoc, splitAt, take, uncons, zipWith, (!!), (:))
 import Data.Array.Partial (tail)
-import Data.Exists (Exists, mkExists, runExists)
 import Data.Foldable (class Foldable, foldMap, foldl, foldr, sum)
 import Data.Functor (mapFlipped)
 import Data.Maybe (Maybe(..), fromJust)
-import Data.Number (exp)
+import Data.Number (exp, fromString)
 import Data.Reflectable (class Reflectable, reflectType)
 import Data.Traversable (class Traversable, sequence, traverse)
-import Data.Tuple (Tuple(..), fst, snd)
+import Data.Tuple (Tuple(..))
+import Data.Tuple.Nested (type (/\), (/\))
 import Effect (Effect)
 import Effect.Random (randomRange)
 import Partial.Unsafe (unsafePartial)
 import Prim.Int (class Add)
-import Simple.JSON (class ReadForeign, class WriteForeign, readJSON_, writeJSON)
+import Simple.JSON (class ReadForeign, class WriteForeign)
 import Type.Proxy (Proxy(..))
 
 newtype Vector :: Int -> Type -> Type
@@ -180,202 +180,173 @@ sigmoid x = one / (one + exp (-x))
 sigmoid' :: Number -> Number
 sigmoid' x = sigmoid x * (one - sigmoid x)
 
-class NN nn i o where
-  run :: nn -> Vector i Number -> Vector o Number
+type DiffNumber = Number
 
-x = show @Int
+class NN nn i o | nn -> i o where
+  forwardPropagation :: nn -> Vector i Number -> Vector o Number
+  backPropagation :: Number -> nn -> Vector i Number -> Vector o DiffNumber -> nn /\ Vector i DiffNumber
 
--- data NNInternal i o a model = NNInternal
---   { run :: model -> Vector i a -> Vector o a
---   , learn :: Ring a => a -> model -> Vector i a -> Vector o a -> Tuple model (Vector i a) -- 学習係数、データ、入力側ベクトル、出力側の微分ベクトル -> (次回のデータ、入力側を微分したベクトル)
---   , toString :: model -> String
---   , fromString :: String -> Maybe model
---   , model :: model
---   }
+teach :: forall nn i o. NN nn i o => Reflectable i Int => Reflectable o Int => Number -> nn -> Vector i Number -> Vector o Number -> nn /\ Vector o Number
+teach rate nn input outputExpected =
+  let
+    outputActual = forwardPropagation nn input
+    diff = lift2 (-) outputActual outputExpected
+    newNN /\ _ = backPropagation rate nn input diff
+  in
+    newNN /\ outputActual
 
--- type NN i o a = Exists (NNInternal i o a)
+class WriteCSV a where
+  writeCSV :: a -> Array String
 
--- runNN :: forall i o. Reflectable i Int => Reflectable o Int => NN i o Number -> Vector i Number -> Vector o Number
--- runNN nn input = runExists (\(NNInternal { run, model }) -> run model input) nn
+instance WriteCSV Number where
+  writeCSV = pure <<< show
 
--- learnNN :: forall i o a. Reflectable i Int => Reflectable o Int => Ring a => a -> NN i o a -> Vector i a -> Vector o a -> Tuple (NN i o a) (Vector o a)
--- learnNN learningRate nn input outputTarget =
---   let
---     f :: forall model. NNInternal i o a model -> Tuple (NN i o a) (Vector o a)
---     f (NNInternal internal) =
---       let
---         output = internal.run internal.model input
---         outputDiff = lift2 (-) output outputTarget
---         Tuple model' _ = internal.learn learningRate internal.model input outputDiff
---       in
---         Tuple (mkExists $ NNInternal internal { model = model' }) output
---   in
---     runExists f nn
+instance WriteCSV a => WriteCSV (Array a) where
+  writeCSV = join <<< map writeCSV
 
--- nnToString :: forall i o a. NN i o a -> String
--- nnToString nn = runExists (\(NNInternal { toString, model }) -> toString model) nn
+instance WriteCSV a => WriteCSV (Vector n a) where
+  writeCSV (Vector arr) = writeCSV arr
 
--- nnLoadString :: forall i o a. String -> NN i o a -> Maybe (NN i o a)
--- nnLoadString str nn = runExists
---   ( \(NNInternal internal) -> case internal.fromString str of
---       Just model -> Just $ mkExists $ NNInternal internal { model = model }
---       Nothing -> Nothing
---   )
---   nn
+instance WriteCSV a => WriteCSV (Matrix h w a) where
+  writeCSV (Matrix arr) = join $ map writeCSV arr
 
--- vDiff2 :: forall i a. Ring a => Reflectable i Int => Vector i a -> Vector i a -> a
--- vDiff2 v1 v2 = sum $ lift2 (\x y -> (x - y) * (x - y)) v1 v2
+class ReadCSV a where
+  readCSV :: Array String -> Maybe (a /\ Array String)
 
--- nnFunc :: forall i a. Reflectable i Int => (a -> a) -> (a -> a) -> NN i i a
--- nnFunc f fDiff = mkExists $ NNInternal
---   { run: \_ -> map f
---   , learn: \_ _ input outputDiff -> Tuple unit $ lift2 (\i oDiff -> fDiff i * oDiff) input outputDiff
---   , toString: const ""
---   , fromString: const $ Just unit
---   , model: unit
---   }
+instance ReadCSV Number where
+  readCSV arr = do
+    { head, tail } <- uncons arr
+    num <- fromString head
+    pure $ num /\ tail
 
--- nnSigmoid :: forall i. Reflectable i Int => NN i i Number
--- nnSigmoid = nnFunc sigmoid sigmoid'
+instance (ReadCSV a, Reflectable n Int) => ReadCSV (Vector n a) where
+  readCSV arr = do
+    let
+      len = reflectType (Proxy :: Proxy n)
+      { before, after } = splitAt len arr
+    v <-
+      foldM
+        ( \{ acc, rest } _ -> do
+            val /\ rest' <- readCSV rest
+            pure { acc: acc `snoc` val, rest: rest' }
+        )
+        { acc: [], rest: before } $ range 0 $ len - 1
+    pure $ Vector v.acc /\ after
 
--- nnRelu :: forall i. Reflectable i Int => NN i i Number
--- nnRelu = nnFunc relu relu'
+instance (ReadCSV a, Reflectable h Int, Reflectable w Int) => ReadCSV (Matrix h w a) where
+  readCSV arr = do
+    let
+      h = reflectType (Proxy :: Proxy h)
+      w = reflectType (Proxy :: Proxy w)
 
--- nnAppend :: forall i m o a. Reflectable i Int => Reflectable m Int => Reflectable o Int => NN i m a -> NN m o a -> NN i o a
--- nnAppend nnLeft nnRight =
---   let
---     f :: forall modelLeft modelRight. NNInternal i m a modelLeft -> NNInternal m o a modelRight -> NN i o a
---     f (NNInternal left) (NNInternal right) = mkExists $ NNInternal
---       { run: \(Tuple lModel rModel) input -> right.run rModel $ left.run lModel input
---       , learn: \learningRate (Tuple lModel rModel) input outputDiff ->
---           let
---             rInput = left.run lModel input
---             Tuple rModel' rInputDiff = right.learn learningRate rModel rInput outputDiff
---             Tuple lModel' lInputDiff = left.learn learningRate lModel input rInputDiff
---           in
---             Tuple (Tuple lModel' rModel') lInputDiff
---       , toString: \model -> writeJSON $ [ left.toString $ fst model, right.toString $ snd model ]
---       , fromString: \str -> do
---           arr <- readJSON_ str
---           Tuple lStr rStr <- case arr of
---             [ lStr, rStr ] -> pure (Tuple lStr rStr)
---             _ -> Nothing
---           lModel <- left.fromString lStr
---           rModel <- right.fromString rStr
---           pure $ Tuple lModel rModel
---       , model: Tuple left.model right.model
---       }
---   in
---     runExists (\nnInternalLeft -> runExists (f nnInternalLeft) nnRight) nnLeft
+      { before, after } = splitAt (h * w) arr
 
--- -- | Append Vertically
--- nnStack
---   :: forall i1 o1 i2 o2 i o a
---    . Reflectable i1 Int
---   => Reflectable o1 Int
---   => Reflectable i2 Int
---   => Reflectable o2 Int
---   => Reflectable i Int
---   => Reflectable o Int
---   => Add i1 i2 i
---   => Add o1 o2 o
---   => NN i1 o1 a
---   -> NN i2 o2 a
---   -> NN i o a
--- nnStack nnTop nnBottom =
---   let
---     f :: forall modelTop modelBottom. NNInternal i1 o1 a modelTop -> NNInternal i2 o2 a modelBottom -> NN i o a
---     f (NNInternal top) (NNInternal bottom) = mkExists $ NNInternal
---       { run: \(Tuple tModel bModel) input ->
---           let
---             Tuple tInput bInput = vDivide input
---           in
---             vAppend (top.run tModel tInput) (bottom.run bModel bInput)
---       , learn: \learningRate (Tuple tModel bModel) input outputDiff ->
---           let
---             Tuple tInput bInput = vDivide input
---             Tuple tOutputDiff bOutputDiff = vDivide outputDiff
---             Tuple tModel' tInputDiff = top.learn learningRate tModel tInput tOutputDiff
---             Tuple bModel' bInputDiff = bottom.learn learningRate bModel bInput bOutputDiff
---           in
---             Tuple (Tuple tModel' bModel') $ vAppend tInputDiff bInputDiff
---       , toString: \model -> writeJSON $ [ top.toString $ fst model, bottom.toString $ snd model ]
---       , fromString: \str -> do
---           arr <- readJSON_ str
---           Tuple lStr rStr <- case arr of
---             [ lStr, rStr ] -> pure (Tuple lStr rStr)
---             _ -> Nothing
---           lModel <- top.fromString lStr
---           rModel <- bottom.fromString rStr
---           pure $ Tuple lModel rModel
---       , model: Tuple top.model bottom.model
---       }
---   in
---     runExists (\nnInternalTop -> runExists (f nnInternalTop) nnBottom) nnTop
+      readRow :: Array String -> Maybe (Array a /\ Array String)
+      readRow arr2 = do
+        let
+          { before, after } = splitAt w arr2
+        v <-
+          foldM
+            ( \{ acc, rest } _ -> do
+                val /\ rest' <- readCSV rest
+                pure { acc: acc `snoc` val, rest: rest' }
+            )
+            { acc: [], rest: before } $ range 0 $ w - 1
+        pure $ v.acc /\ after
+    m <-
+      foldM
+        ( \{ acc, rest } _ -> do
+            row /\ rest' <- readRow rest
+            pure { acc: acc `snoc` row, rest: rest' }
+        )
+        { acc: [], rest: before } $ range 0 $ h - 1
+    pure $ Matrix m.acc /\ after
 
--- -- | Use same model
--- nnStackCopy :: forall i i' o o' a. Reflectable i Int => Reflectable o Int => Reflectable i' Int => Reflectable o' Int => Add i i i' => Add o o o' => NN i o a -> NN i' o' a
--- nnStackCopy nn =
---   let
---     f :: forall model. NNInternal i o a model -> NN i' o' a
---     f (NNInternal internal) = mkExists $ NNInternal
---       { run: \model input ->
---           let
---             Tuple tInput bInput = vDivide input
---           in
---             vAppend (internal.run model tInput) (internal.run model bInput)
---       , learn: \learningRate model input outputDiff ->
---           let
---             Tuple tInput bInput = vDivide input
---             Tuple tOutputDiff bOutputDiff = vDivide outputDiff
---             Tuple model' tInputDiff = internal.learn learningRate model tInput tOutputDiff
---             Tuple model'' bInputDiff = internal.learn learningRate model' bInput bOutputDiff
---           in
---             Tuple model'' $ vAppend tInputDiff bInputDiff
---       , toString: internal.toString
---       , fromString: internal.fromString
---       , model: internal.model
---       }
---   in
---     runExists f nn
+data NNAppend nnLeft nnRight = NNAppend nnLeft nnRight
 
--- nnMatrix :: forall i o i' a. Reflectable o Int => Reflectable i' Int => Semiring a => Reflectable i Int => Add i 1 i' => WriteForeign a => ReadForeign a => Matrix o i' a -> Exists (NNInternal i o a)
--- nnMatrix initMatrix = mkExists $ NNInternal
---   { run: \matrix input -> mulMV matrix $ vCons one input
---   , learn: \leaningRate matrix input outputDiff ->
---       let
---         input' = vCons one input
---         inputDiff = mulMV (transpose matrix) outputDiff
---         matrix' = lift2 (-) matrix (map (_ * leaningRate) $ outer (*) outputDiff input')
---       in
---         Tuple matrix' $ vTail inputDiff
---   , toString: writeJSON
---   , fromString: readJSON_
---   , model: initMatrix
---   }
+nnAppend :: forall nnLeft nnRight i m o. NN nnLeft i m => NN nnRight m o => NNAppend nnLeft nnRight -> Vector i Number -> Vector o Number
+nnAppend (NNAppend nnLeft nnRight) v = forwardPropagation nnRight $ forwardPropagation nnLeft v
 
--- mRandom :: forall h w. Reflectable h Int => Reflectable w Int => Effect (Matrix h w Number)
--- mRandom = mGenerateA \_ _ -> randomRange (-1.0) 1.0
+infixl 4 NNAppend as >|>
 
--- vRandom :: forall n. Reflectable n Int => Effect (Vector n Number)
--- vRandom = vGenerateA \_ -> randomRange (-1.0) 1.0
+infixl 4 type NNAppend as >|>
 
--- nnIdentity :: forall i. Reflectable i Int => NN i i Number
--- nnIdentity = mkExists $ NNInternal
---   { run: \_ -> identity
---   , learn: \_ _ _ outputDiff -> Tuple unit outputDiff
---   , toString: const ""
---   , fromString: const $ Just unit
---   , model: unit
---   }
+derive instance (Eq nnLeft, Eq nnRight) => Eq (NNAppend nnLeft nnRight)
+derive instance (Ord nnLeft, Ord nnRight) => Ord (NNAppend nnLeft nnRight)
+instance (WriteCSV nnLeft, WriteCSV nnRight) => WriteCSV (NNAppend nnLeft nnRight) where
+  writeCSV (NNAppend nnLeft nnRight) = writeCSV nnLeft <> writeCSV nnRight
 
--- nnSum :: forall i. Reflectable i Int => NN i 1 Number
--- nnSum = mkExists $ NNInternal
---   { run: \_ -> sum >>> vSingleton
---   , learn: \_ _ _ outputDiff -> Tuple unit $ pure $ vToA outputDiff
---   , toString: const ""
---   , fromString: const $ Just unit
---   , model: unit
---   }
+instance (ReadCSV nnLeft, ReadCSV nnRight) => ReadCSV (NNAppend nnLeft nnRight) where
+  readCSV arr = do
+    nnLeft /\ arr' <- readCSV arr
+    nnRight /\ arr'' <- readCSV arr'
+    pure $ NNAppend nnLeft nnRight /\ arr''
 
--- infixl 4 nnAppend as >|>
+instance (NN nnLeft i m, NN nnRight m o) => NN (NNAppend nnLeft nnRight) i o where
+  forwardPropagation (NNAppend nnLeft nnRight) input =
+    forwardPropagation nnRight $ forwardPropagation nnLeft input
+
+  backPropagation rate (NNAppend nnLeft nnRight) inputLeft outputDiffRight =
+    let
+      inputRight = forwardPropagation nnLeft inputLeft
+      newNNR /\ outputDiffLeft = backPropagation rate nnRight inputRight outputDiffRight
+      newNNL /\ inputDiffLeft = backPropagation rate nnLeft inputLeft outputDiffLeft
+    in
+      NNAppend newNNL newNNR /\ inputDiffLeft
+
+newtype NNMatrix :: Int -> Int -> Int -> Type
+newtype NNMatrix i i_plus_one o = NNMatrix (Matrix o i_plus_one Number)
+
+derive newtype instance Eq (NNMatrix i i_plus_one o)
+derive newtype instance Ord (NNMatrix i i_plus_one o)
+derive newtype instance WriteCSV (NNMatrix i i_plus_one o)
+derive newtype instance (Reflectable i_plus_one Int, Reflectable o Int) => ReadCSV (NNMatrix i i_plus_one o)
+
+instance (Reflectable i Int, Reflectable i_plus_one Int, Reflectable o Int, Add i 1 i_plus_one) => NN (NNMatrix i i_plus_one o) i o where
+  forwardPropagation (NNMatrix m) input = mulMV m $ vCons 1.0 input
+
+  backPropagation rate (NNMatrix m) input outputDiff =
+    let
+      inputDiff = vTail $ mulMV (transpose m) outputDiff
+      input' = vCons 1.0 input
+      m' = lift2 (\x y -> x - rate * y) m $ outer (*) outputDiff input'
+    in
+      NNMatrix m' /\ inputDiff
+
+data NNFunction :: Int -> Int -> Type
+data NNFunction i o = NNRelu | NNSigmoid
+
+derive instance Eq a => Eq (NNFunction i o)
+
+instance WriteCSV (NNFunction i o) where
+  writeCSV NNRelu = [ "relu" ]
+  writeCSV NNSigmoid = [ "sigmoid" ]
+
+instance (Reflectable i Int, Reflectable o Int) => ReadCSV (NNFunction i o) where
+  readCSV arr = do
+    { head, tail } <- uncons arr
+    case head of
+      "relu" -> pure $ NNRelu /\ tail
+      "sigmoid" -> pure $ NNSigmoid /\ tail
+      _ -> Nothing
+
+instance Reflectable i Int => NN (NNFunction i i) i i where
+  forwardPropagation NNRelu input = map relu input
+  forwardPropagation NNSigmoid input = map sigmoid input
+
+  backPropagation _ NNRelu input outputDiff =
+    let
+      inputDiff = lift2 (*) outputDiff $ map relu' input
+    in
+      NNRelu /\ inputDiff
+  backPropagation _ NNSigmoid input outputDiff =
+    let
+      inputDiff = lift2 (*) outputDiff $ map sigmoid' input
+    in
+      NNSigmoid /\ inputDiff
+
+mRandom :: forall h w. Reflectable h Int => Reflectable w Int => Effect (Matrix h w Number)
+mRandom = mGenerateA \_ _ -> randomRange (-1.0) 1.0
+
+vRandom :: forall n. Reflectable n Int => Effect (Vector n Number)
+vRandom = vGenerateA \_ -> randomRange (-1.0) 1.0

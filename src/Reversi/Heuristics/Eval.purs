@@ -3,144 +3,90 @@ module Reversi.Heuristics.Eval where
 import Prelude
 
 import Data.Array (catMaybes, foldl, (..))
+import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromJust)
-import Data.Tuple (Tuple(..))
+import Data.String (Pattern(..), joinWith, split)
+import Data.Tuple (Tuple(..), fst)
 import Data.Tuple.Nested (type (/\), (/\))
 import Effect (Effect)
 import Node.Encoding (Encoding(..))
 import Node.FS.Sync (readTextFile, writeTextFile)
 import Partial.Unsafe (unsafePartial)
-import Reversi.Heuristics.NN (Matrix, NN, Vector, learnNN, mRandom, nnLoadString, nnMatrix, nnRelu, nnSigmoid, nnStack, nnStackCopy, nnSum, nnToString, runNN, vAppend, vFromArray, vSingleton, vToA, (>|>))
+import Reversi.Heuristics.NN (type (>|>), Matrix, NNFunction(..), NNMatrix(..), Vector, forwardPropagation, mRandom, readCSV, teach, vCons, vFromArray, vSingleton, vToA, writeCSV, (>|>))
 import Reversi.System (Board, countDisks, flipAll, indexB)
 
-type EvalNN = NN 144 1 Number
+type EvalNN = NNMatrix 65 66 12 >|> NNFunction 12 12 >|> NNMatrix 12 13 12 >|> NNFunction 12 12 >|> NNMatrix 12 13 1 >|> NNFunction 1 1
 
-boardToInput :: Board -> Vector 144 Number
+boardToInput :: Board -> Vector 65 Number
 boardToInput board = unsafePartial $ fromJust do
   let
     cellToNum = case _ of
       Nothing -> 0.0
       Just true -> 1.0
       Just false -> -1.0
-  tl :: Vector 16 Number <- vFromArray $ catMaybes do
-    h <- 0 .. 3
-    w <- 0 .. 3
+    b /\ w = countDisks board
+    turn = b + w
+  bs <- vFromArray $ catMaybes do
+    h <- 0 .. 7
+    w <- 0 .. 7
     pure $ cellToNum <$> indexB board { h, w }
-  tr :: Vector 16 Number <- vFromArray $ catMaybes do
-    w <- 7 .. 4
-    h <- 0 .. 3
-    pure $ cellToNum <$> indexB board { h, w }
-  br :: Vector 16 Number <- vFromArray $ catMaybes do
-    h <- 7 .. 4
-    w <- 7 .. 4
-    pure $ cellToNum <$> indexB board { h, w }
-  bl :: Vector 16 Number <- vFromArray $ catMaybes do
-    w <- 0 .. 3
-    h <- 7 .. 4
-    pure $ cellToNum <$> indexB board { h, w }
-  t :: Vector 16 Number <- vFromArray $ catMaybes do
-    h <- 0 .. 3
-    w <- 2 .. 5
-    pure $ cellToNum <$> indexB board { h, w }
-  r :: Vector 16 Number <- vFromArray $ catMaybes do
-    w <- 7 .. 4
-    h <- 2 .. 5
-    pure $ cellToNum <$> indexB board { h, w }
-  b :: Vector 16 Number <- vFromArray $ catMaybes do
-    h <- 7 .. 4
-    w <- 5 .. 2
-    pure $ cellToNum <$> indexB board { h, w }
-  l :: Vector 16 Number <- vFromArray $ catMaybes do
-    w <- 0 .. 3
-    h <- 5 .. 2
-    pure $ cellToNum <$> indexB board { h, w }
-  c :: Vector 16 Number <- vFromArray $ catMaybes do
-    h <- 2 .. 5
-    w <- 2 .. 5
-    pure $ cellToNum <$> indexB board { h, w }
-  pure $
-    tl
-      `vAppend` tr
-      `vAppend` br
-      `vAppend` bl
-      `vAppend` t
-      `vAppend` r
-      `vAppend` b
-      `vAppend` l
-      `vAppend` c
+  pure $ vCons (toNumber turn) bs
 
 randEvalNN :: Effect EvalNN
 randEvalNN = do
-  matrix1 :: Matrix 8 17 Number <- mRandom
-  matrix2 :: Matrix 8 9 Number <- mRandom
-  matrix3 :: Matrix 1 9 Number <- mRandom
-  let
-    nnPart =
-      nnMatrix matrix1
-        >|> nnRelu
-        >|> nnMatrix matrix2
-        >|> nnRelu
-        >|> nnMatrix matrix3
-        >|> nnSigmoid
-    nnFour =
-      nnStackCopy (nnStackCopy nnPart)
-        >|> nnSum
-    nnStacked = nnFour `nnStack` nnFour `nnStack` nnPart
-  matrix4 :: Matrix 1 4 Number <- mRandom
-  pure $ nnStacked >|> nnMatrix matrix4 >|> nnSigmoid
+  matrix1 :: Matrix 12 66 Number <- mRandom
+  matrix2 :: Matrix 12 13 Number <- mRandom
+  matrix3 :: Matrix 1 13 Number <- mRandom
+  pure $ NNMatrix matrix1
+    >|> NNRelu
+    >|> NNMatrix matrix2
+    >|> NNRelu
+    >|> NNMatrix matrix3
+    >|> NNSigmoid
 
-evalBoard :: EvalNN -> EvalNN -> Board -> Number
-evalBoard nn1 nn2 board =
-  let
-    b /\ w = countDisks board
-    turn = b + w
-  in
-    vToA $ runNN (if turn < 44 then nn1 else nn2) $ boardToInput board
+evalBoard :: EvalNN -> Board -> Number
+evalBoard nn board = vToA $ forwardPropagation nn $ boardToInput board
 
-learnEvalNN :: Number -> EvalNN -> EvalNN -> Board -> Maybe Boolean -> Tuple (EvalNN /\ EvalNN) Number
-learnEvalNN learningRate nn1 nn2 board teach =
+learnEvalNN :: Number -> EvalNN -> Board -> Maybe Boolean -> EvalNN /\ Number
+learnEvalNN learningRate nn board expected =
   let
-    b /\ w = countDisks board
-    turn = b + w
-    t = case teach of
+    t = case expected of
       Just true -> 1.0
       Just false -> 0.0
       Nothing -> 0.5
-    Tuple newNN output = learnNN learningRate (if turn < 44 then nn1 else nn2) (boardToInput board) $ vSingleton t
+    Tuple newNN output = teach learningRate nn (boardToInput board) $ vSingleton t
     d = (vToA output - t) * (vToA output - t)
   in
-    Tuple (if turn < 44 then Tuple newNN nn2 else Tuple nn1 newNN) d
+    newNN /\ d
 
-learnGameEvalNN :: Number -> EvalNN -> EvalNN -> Array Board -> Maybe Boolean -> Tuple (EvalNN /\ EvalNN) Number
-learnGameEvalNN learningRate nn1 nn2 history teach =
+learnGameEvalNN :: Number -> EvalNN -> Array Board -> Maybe Boolean -> EvalNN /\ Number
+learnGameEvalNN learningRate nn history teach =
   let
-    nn' = foldl
-      ( \(Tuple (Tuple acc1 acc2) d) b ->
+    nnAndDiff = foldl
+      ( \(acc /\ d) b ->
           let
-            Tuple newNN dAdd = learnEvalNN learningRate acc1 acc2 b teach
+            newNN /\ dAdd = learnEvalNN learningRate acc b teach
           in
-            Tuple newNN (d + dAdd)
+            newNN /\ (d + dAdd)
       )
-      (Tuple (Tuple nn1 nn2) 0.0)
+      (nn /\ 0.0)
       history
   in
     foldl
-      ( \(Tuple (Tuple acc1 acc2) d) b ->
+      ( \(acc /\ d) b ->
           let
-            Tuple newNN dAdd = learnEvalNN learningRate acc1 acc2 (flipAll b) (map not teach)
+            newNN /\ dAdd = learnEvalNN learningRate acc (flipAll b) (map not teach)
           in
-            Tuple newNN (d + dAdd)
+            newNN /\ (d + dAdd)
       )
-      nn'
+      nnAndDiff
       history
 
-saveEvalNN :: String -> EvalNN -> EvalNN -> Effect Unit
-saveEvalNN filename evalNN evalNN2 = do
-  writeTextFile UTF8 ("nn/" <> filename) $ nnToString evalNN
-  writeTextFile UTF8 ("nn2/" <> filename) $ nnToString evalNN2
+saveEvalNN :: String -> EvalNN -> Effect Unit
+saveEvalNN filename evalNN = do
+  writeTextFile UTF8 ("nnCSV/" <> filename) $ joinWith "," $ writeCSV (evalNN :: EvalNN)
 
-loadEvalNN :: String -> EvalNN ->EvalNN -> Effect (Tuple EvalNN EvalNN)
-loadEvalNN filename evalNN evalNN2 = do
-  str <- readTextFile UTF8 ("nn/" <> filename)
-  str2 <- readTextFile UTF8 ("nn2/" <> filename)
-  pure $ Tuple (unsafePartial $ fromJust $ nnLoadString str evalNN) (unsafePartial $ fromJust $nnLoadString str2 evalNN2)
+loadEvalNN :: String -> Effect EvalNN
+loadEvalNN filename = do
+  str <- readTextFile UTF8 ("nnCSV/" <> filename)
+  pure $ fst $ unsafePartial $ fromJust $ readCSV $ split (Pattern ",") str

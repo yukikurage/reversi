@@ -22,7 +22,7 @@ import Effect.Random (randomInt)
 import Node.Process (exit)
 import Reversi.Com (diskCount, miniMax)
 import Reversi.Game (Strategy, console)
-import Reversi.Heuristics.Eval (EvalNN, evalBoard, loadEvalNN, randEvalNN)
+import Reversi.Heuristics.Eval (EvalNN, evalBoard, loadEvalNN)
 import Reversi.System (availablePositions, boardToString, countDisks, indexToString, initialBoard, nextBoards, putDisk, stringToIndex)
 import Reversi.Util (maximumIs, minimumIs, randArr)
 import Stdin (questionValid)
@@ -44,10 +44,9 @@ type Player = Boolean -- True: Black, False: White
 
 main :: Effect Unit
 main = launchAff_ do
-  initEvalNN <- liftEffect $ randEvalNN
-  initEvalNN2 <- liftEffect $ randEvalNN
-  evalNN1 /\ evalNN2 <- liftEffect $ loadEvalNN "72600" initEvalNN initEvalNN2
-  lastBoard /\ _ <- console (evalCom true evalNN1 evalNN2) (manual evalNN1 evalNN2) initialBoard
+  -- initEvalNN <- liftEffect $ randEvalNN
+  evalNN1 <- liftEffect $ loadEvalNN "100"
+  lastBoard /\ _ <- console (evalCom true evalNN1) (manual evalNN1) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
@@ -55,9 +54,9 @@ main = launchAff_ do
   log $ "Winner: " <> if b > w then "Black" else "White"
   liftEffect $ exit 0
 
-manual :: EvalNN -> EvalNN -> Strategy
-manual evalNN evalNN2 b = do
-  log $ "Strength: " <> show (evalBoard evalNN evalNN2 b)
+manual :: EvalNN -> Strategy
+manual evalNN b = do
+  log $ "Strength: " <> show (evalBoard evalNN b)
   log "Please input the position to put a disk."
   pos <- questionValid "> " stringToIndex $ log "Invalid input."
   pure pos
@@ -80,9 +79,9 @@ diskCountCom c depth board = do
   i <- liftEffect $ fromMaybe 1 <$> randArr is
   pure $ fromMaybe { h: 0, w: 0 } $ avs !! i
 
-evalCom :: Boolean -> EvalNN -> EvalNN -> Strategy
-evalCom c evalNN evalNN2 board = do
-  log $ "Strength: " <> show (evalBoard evalNN evalNN2 board)
+evalCom :: Boolean -> EvalNN -> Strategy
+evalCom c evalNN board = do
+  log $ "Strength: " <> show (evalBoard evalNN board)
   let
     bc /\ wc = countDisks board
     turn = bc + wc
@@ -95,7 +94,7 @@ evalCom c evalNN evalNN2 board = do
     go :: Int -> Effect (Array Number)
     go n = do
       let
-        p = map (miniMax (evalBoard evalNN evalNN2) nextBoards (not c) n) nb
+        p = map (miniMax (evalBoard evalNN) nextBoards (not c) n) nb
       Milliseconds et <- liftEffect $ unInstant <$> now
       if et - st < 1000.0 && n < 20 then
         go (n + 1)

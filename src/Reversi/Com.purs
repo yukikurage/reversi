@@ -12,7 +12,6 @@ import Data.Array (foldl, null)
 import Data.Int (toNumber)
 import Data.Number (infinity)
 import Data.Tuple.Nested ((/\))
-import Debug (spy)
 import Reversi.System (Board, boardToString, countDisks)
 import Unsafe.Coerce (unsafeCoerce)
 
