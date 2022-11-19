@@ -12,18 +12,23 @@ import Effect (Effect)
 import Node.Encoding (Encoding(..))
 import Node.FS.Sync (readTextFile, writeTextFile)
 import Partial.Unsafe (unsafePartial)
-import Reversi.Heuristics.NN (type (>|>), Matrix, NNFunction(..), NNMatrix(..), Vector, forwardPropagation, mRandom, readCSV, teach, vCons, vFromArray, vSingleton, vToA, writeCSV, (>|>))
+import Reversi.Heuristics.NN (type (>|>), NNFunction(..), NNMatrix(..), Vector, forwardPropagation, mRandom, readCSV, teach, vCons, vFromArray, vSingleton, vToA, writeCSV, (>|>))
 import Reversi.System (Board, countDisks, flipAll, indexB)
 
-type EvalNN = NNMatrix 65 66 12 >|> NNFunction 12 12 >|> NNMatrix 12 13 12 >|> NNFunction 12 12 >|> NNMatrix 12 13 1 >|> NNFunction 1 1
+type EvalNN = NNMatrix 65 66 12
+  >|> NNFunction 12 12
+  >|> NNMatrix 12 13 12
+  >|> NNFunction 12 12
+  >|> NNMatrix 12 13 1
+  >|> NNFunction 1 1
 
 boardToInput :: Board -> Vector 65 Number
 boardToInput board = unsafePartial $ fromJust do
   let
     cellToNum = case _ of
-      Nothing -> 0.0
+      Nothing -> 0.5
       Just true -> 1.0
-      Just false -> -1.0
+      Just false -> 0.0
     b /\ w = countDisks board
     turn = b + w
   bs <- vFromArray $ catMaybes do
@@ -34,11 +39,11 @@ boardToInput board = unsafePartial $ fromJust do
 
 randEvalNN :: Effect EvalNN
 randEvalNN = do
-  matrix1 :: Matrix 12 66 Number <- mRandom
-  matrix2 :: Matrix 12 13 Number <- mRandom
-  matrix3 :: Matrix 1 13 Number <- mRandom
+  matrix1 <- mRandom
+  matrix2 <- mRandom
+  matrix3 <- mRandom
   pure $ NNMatrix matrix1
-    >|> NNSigmoid
+    >|> NNRelu
     >|> NNMatrix matrix2
     >|> NNSigmoid
     >|> NNMatrix matrix3
