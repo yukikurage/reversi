@@ -19,10 +19,10 @@ import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
 import Reversi.Util (maximumIs, minimumIs, randArr)
 
 initGen :: Int
-initGen = 0
+initGen = 100
 
 steps :: Int
-steps = 100
+steps = 1000000
 
 main :: Effect Unit
 main = do
