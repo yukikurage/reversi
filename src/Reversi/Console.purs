@@ -46,7 +46,7 @@ main :: Effect Unit
 main = launchAff_ do
   initEvalNN <- liftEffect $ randEvalNN
   initEvalNN2 <- liftEffect $ randEvalNN
-  evalNN1 /\ evalNN2 <- liftEffect $ loadEvalNN "69100" initEvalNN initEvalNN2
+  evalNN1 /\ evalNN2 <- liftEffect $ loadEvalNN "72600" initEvalNN initEvalNN2
   lastBoard /\ _ <- console (evalCom true evalNN1 evalNN2) (manual evalNN1 evalNN2) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
