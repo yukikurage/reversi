@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Array (foldRecM, take, (!!), (..))
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Number (infinity)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
@@ -12,7 +13,7 @@ import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
 import Effect.Random (randomRange)
 import Partial.Unsafe (unsafePartial)
-import Reversi.Com (diskCount, miniMax)
+import Reversi.Com (alphaBeta, diskCount)
 import Reversi.Game (Strategy, silent)
 import Reversi.Heuristics.Eval (EvalNN, evalBoard, learnGameEvalNN, loadEvalNN, saveEvalNN)
 import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
@@ -60,7 +61,7 @@ com c evalNN board = do
   if isRandom then liftEffect $ fromMaybe { h: 0, w: 0 } <$> randArr avs
   else do
     let
-      points = map (if turn < 57 then miniMax (evalBoard evalNN) nextBoards (not c) 2 else miniMax diskCount nextBoards (not c) 10) nb
+      points = map ((if turn < 57 then alphaBeta (evalBoard evalNN) (not c) 2 else alphaBeta diskCount (not c) 10) (-infinity) infinity) nb
       is = (if c then maximumIs 0.0001 else minimumIs 0.0001) points
     i <- liftEffect $ fromMaybe 0 <$> randArr is
     pure $ fromMaybe { h: 0, w: 0 } $ avs !! i

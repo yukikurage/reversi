@@ -4,7 +4,9 @@ import Prelude
 
 import Data.Array (filter, length, null, (!!), (..))
 import Data.Foldable (maximum, minimum)
+import Data.FoldableWithIndex (foldlWithIndex)
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Number (infinity)
 import Effect (Effect)
 import Effect.Random (randomInt)
 
@@ -35,6 +37,12 @@ minimumIs x arr =
           m <- min
           pure $ v <= m + x
       ) $ 0 .. (length arr - 1)
+
+maximumI :: Array Number -> Int
+maximumI arr = _.index $ foldlWithIndex (\index acc value -> if value > acc.value then { value, index } else acc) { value: -infinity, index: -1 } arr
+
+minimumI :: Array Number -> Int
+minimumI arr = _.index $ foldlWithIndex (\index acc value -> if value < acc.value then { value, index } else acc) { value: infinity, index: -1 } arr
 
 randArr :: forall a. Array a -> Effect (Maybe a)
 randArr arr = do
