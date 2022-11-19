@@ -47,7 +47,7 @@ main :: Effect Unit
 main = launchAff_ do
   -- initEvalNN <- liftEffect $ randEvalNN
   evalNN1 <- liftEffect $ loadEvalNN "100"
-  lastBoard /\ _ <- console (evalCom true evalNN1) (evalCom false evalNN1) {- (manual evalNN1)  -}  initialBoard
+  lastBoard /\ _ <- console (evalCom true evalNN1) {- (evalCom false evalNN1) -}  (manual evalNN1) initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
