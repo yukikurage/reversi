@@ -15,12 +15,12 @@ import Effect.Random (randomRange)
 import Partial.Unsafe (unsafePartial)
 import Reversi.Com (alphaBeta, diskCount)
 import Reversi.Game (Strategy, silent)
-import Reversi.Heuristics.Eval (EvalNN, evalBoard, learnGameEvalNN, loadEvalNN, saveEvalNN)
+import Reversi.Heuristics.Eval (EvalNN, evalBoard, learnGameEvalNN, loadEvalNN, randEvalNN, saveEvalNN)
 import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
 import Reversi.Util (maximumIs, minimumIs, randArr)
 
 initGen :: Int
-initGen = 100
+initGen = 600
 
 steps :: Int
 steps = 1000000
@@ -45,7 +45,8 @@ step evalNN i = do
       | b > w = Just true
       | b < w = Just false
       | otherwise = Nothing
-    Tuple newNN diff = learnGameEvalNN 0.05 evalNN (take 58 history) isWinB
+    Tuple newNN diff = learnGameEvalNN 0.001 evalNN (take 58 history) isWinB
+  log $ "Win: " <> show isWinB
   log $ "Diff: " <> show diff
   pure newNN
 

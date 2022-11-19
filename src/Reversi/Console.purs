@@ -46,8 +46,8 @@ type Player = Boolean -- True: Black, False: White
 main :: Effect Unit
 main = launchAff_ do
   -- initEvalNN <- liftEffect $ randEvalNN
-  evalNN1 <- liftEffect $ loadEvalNN "100"
-  lastBoard /\ _ <- console (evalCom true evalNN1) {- (evalCom false evalNN1) -}  (manual evalNN1) initialBoard
+  evalNN1 <- liftEffect $ loadEvalNN "600"
+  lastBoard /\ _ <- console (evalCom true evalNN1) (evalCom false evalNN1) {- (manual evalNN1) -}  initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
     b /\ w = countDisks lastBoard
@@ -97,11 +97,11 @@ evalCom c evalNN board = do
       let
         p = map (alphaBeta (evalBoard evalNN) (not c) n (-infinity) infinity) nb
       Milliseconds et <- liftEffect $ unInstant <$> now
-      if et - st < 500.0 && n < 20 then
+      if et - st < 50.0 && n < 20 then
         go (n + 1)
       else
         pure p
-  points <- if turn < 57 then (liftEffect $ go 3) else pure $ map (alphaBeta diskCount (not c) 3 (-infinity) infinity) nb
+  points <- if turn < 57 then (liftEffect $ go 3) else pure $ map (alphaBeta diskCount (not c) 10 (-infinity) infinity) nb
   log $ joinWith "\n" $ zipWith (\pos point -> indexToString pos <> " " <> show point) avs points
   let
     i = (if c then maximumI else minimumI) points

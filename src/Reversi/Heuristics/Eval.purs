@@ -38,9 +38,9 @@ randEvalNN = do
   matrix2 :: Matrix 12 13 Number <- mRandom
   matrix3 :: Matrix 1 13 Number <- mRandom
   pure $ NNMatrix matrix1
-    >|> NNRelu
+    >|> NNSigmoid
     >|> NNMatrix matrix2
-    >|> NNRelu
+    >|> NNSigmoid
     >|> NNMatrix matrix3
     >|> NNSigmoid
 
