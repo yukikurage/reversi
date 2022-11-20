@@ -43,7 +43,7 @@ randEvalNN = do
   matrix2 <- mRandom
   matrix3 <- mRandom
   pure $ NNMatrix matrix1
-    >|> NNRelu
+    >|> NNSigmoid
     >|> NNMatrix matrix2
     >|> NNSigmoid
     >|> NNMatrix matrix3
