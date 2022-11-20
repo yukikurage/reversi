@@ -77,15 +77,7 @@ learnGameEvalNN learningRate nn history teach =
       (nn /\ 0.0)
       history
   in
-    foldl
-      ( \(acc /\ d) b ->
-          let
-            newNN /\ dAdd = learnEvalNN learningRate acc (flipAll b) (map not teach)
-          in
-            newNN /\ (d + dAdd)
-      )
-      nnAndDiff
-      history
+    nnAndDiff
 
 saveEvalNN :: String -> EvalNN -> Effect Unit
 saveEvalNN filename evalNN = do

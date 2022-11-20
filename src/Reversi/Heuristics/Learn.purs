@@ -20,7 +20,7 @@ import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
 import Reversi.Util (maximumI, maximumIs, minimumI, minimumIs, randArr)
 
 initGen :: Int
-initGen = 180
+initGen = 2720
 
 steps :: Int
 steps = 1000000
@@ -36,7 +36,7 @@ main = do
 step :: EvalNN -> Int -> Aff EvalNN
 step evalNN i = do
   log $ "Step: " <> show i
-  if i `mod` 30 == 0 then liftEffect $ saveEvalNN (show i) evalNN
+  if i `mod` 40 == 0 then liftEffect $ saveEvalNN (show i) evalNN
   else pure unit
   last /\ history <- silent (com true evalNN) (com false evalNN) initialBoard
   let
