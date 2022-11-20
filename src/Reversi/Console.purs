@@ -46,7 +46,7 @@ type Player = Boolean -- True: Black, False: White
 main :: Effect Unit
 main = launchAff_ do
   -- initEvalNN <- liftEffect $ randEvalNN
-  evalNN1 <- liftEffect $ loadEvalNN "27100"
+  evalNN1 <- liftEffect $ loadEvalNN "1950"
   lastBoard /\ _ <- console (evalCom true evalNN1) (evalCom false evalNN1) {- (manual evalNN1) -}  initialBoard
   log $ "Game finished. Final board: " <> "\n" <> boardToString lastBoard
   let
