@@ -20,7 +20,7 @@ import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
 import Reversi.Util (maximumI, maximumIs, minimumI, minimumIs, randArr)
 
 initGen :: Int
-initGen = 2720
+initGen = 0
 
 steps :: Int
 steps = 1000000
@@ -36,7 +36,7 @@ main = do
 step :: EvalNN -> Int -> Aff EvalNN
 step evalNN i = do
   log $ "Step: " <> show i
-  if i `mod` 40 == 0 then liftEffect $ saveEvalNN (show i) evalNN
+  if i `mod` 100 == 0 then liftEffect $ saveEvalNN (show i) evalNN
   else pure unit
   last /\ history <- silent (com true evalNN) (com false evalNN) initialBoard
   let
@@ -45,7 +45,7 @@ step evalNN i = do
       | b > w = Just true
       | b < w = Just false
       | otherwise = Nothing
-    Tuple newNN diff = learnGameEvalNN 0.001 evalNN (take 58 history) isWinB
+    Tuple newNN diff = learnGameEvalNN 0.05 evalNN (take 58 history) isWinB
   log $ "Win: " <> show isWinB
   log $ "Diff: " <> show diff
   pure newNN
@@ -62,7 +62,7 @@ com c evalNN board = do
   if isRandom then liftEffect $ fromMaybe { h: 0, w: 0 } <$> randArr avs
   else do
     let
-      points = map ((if turn < 57 then alphaBeta (evalBoard evalNN) (not c) 3 else alphaBeta diskCount (not c) 10) (-infinity) infinity) nb
+      points = map ((if turn < 57 then alphaBeta (evalBoard evalNN) (not c) 2 else alphaBeta diskCount (not c) 10) (-infinity) infinity) nb
       i = (if c then maximumI else minimumI) points
     pure $ fromMaybe { h: 0, w: 0 } $ avs !! i
 
@@ -78,7 +78,7 @@ com2 c evalNN board = do
   if isRandom then liftEffect $ fromMaybe { h: 0, w: 0 } <$> randArr avs
   else do
     let
-      points = map ((if turn < 57 then alphaBeta diskCount (not c) 2 else alphaBeta diskCount (not c) 10) (-infinity) infinity) nb
+      points = map ((if turn < 57 then alphaBeta diskCount (not c) 1 else alphaBeta diskCount (not c) 10) (-infinity) infinity) nb
       is = (if c then maximumIs 0.0001 else minimumIs 0.0001) points
     i <- liftEffect $ fromMaybe 0 <$> randArr is
     pure $ fromMaybe { h: 0, w: 0 } $ avs !! i

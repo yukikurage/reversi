@@ -76,6 +76,9 @@ vGenerateA f =
 vReplicateA :: forall s m a. Reflectable s Int => Applicative m => m a -> m (Vector s a)
 vReplicateA = vGenerateA <<< const
 
+vReplicate :: forall s a. Reflectable s Int => a -> Vector s a
+vReplicate = vGenerate <<< const
+
 vZipWith :: forall s a b c. Reflectable s Int => (a -> b -> c) -> Vector s a -> Vector s b -> Vector s c
 vZipWith f (Vector a) (Vector b) = Vector $ zipWith f a b
 
@@ -352,6 +355,8 @@ nnStack nn1 nn2 = NNStack nn1 nn2
 
 infixl 4 NNStack as >-<
 
+infixl 4 type NNStack as >-<
+
 derive instance (Eq nn1, Eq nn2) => Eq (NNStack nn1 nn2)
 
 instance (WriteCSV nn1, WriteCSV nn2) => WriteCSV (NNStack nn1 nn2) where
@@ -386,8 +391,6 @@ newtype NNCopy nn = NNCopy nn
 nnCopy :: forall nn i o. NN nn i o => nn -> NNCopy nn
 nnCopy nn = NNCopy nn
 
-infixl 4 NNCopy as >||<
-
 derive instance Eq nn => Eq (NNCopy nn)
 
 derive newtype instance WriteCSV nn => WriteCSV (NNCopy nn)
@@ -410,6 +413,85 @@ instance (NN nn i o, Add i i i2, Add o o o2, Reflectable i Int, Reflectable o In
       newNNBottom /\ inputDiff2 = backPropagation rate newNNTop input2 outputDiff2
     in
       NNCopy newNNBottom /\ vAppend inputDiff1 inputDiff2
+
+data NNSum nn1 nn2 = NNSum nn1 nn2
+
+nnSum :: forall nn1 nn2 i1 i2 i o. Add i1 i2 i => NN nn1 i1 o => NN nn2 i2 o => nn1 -> nn2 -> NNSum nn1 nn2
+nnSum nn1 nn2 = NNSum nn1 nn2
+
+infixl 4 NNSum as >+<
+
+derive instance (Eq nn1, Eq nn2) => Eq (NNSum nn1 nn2)
+
+instance (WriteCSV nn1, WriteCSV nn2) => WriteCSV (NNSum nn1 nn2) where
+  writeCSV (NNSum nn1 nn2) = writeCSV nn1 <> writeCSV nn2
+
+instance (ReadCSV nn1, ReadCSV nn2) => ReadCSV (NNSum nn1 nn2) where
+  readCSV arr = do
+    nn1 /\ arr' <- readCSV arr
+    nn2 /\ arr'' <- readCSV arr'
+    pure $ NNSum nn1 nn2 /\ arr''
+
+instance (NN nn1 i1 o, NN nn2 i2 o, Add i1 i2 i, Reflectable i1 Int, Reflectable i2 Int, Reflectable i Int, Reflectable o Int) => NN (NNSum nn1 nn2) i o where
+  forwardPropagation (NNSum nn1 nn2) input =
+    let
+      input1 /\ input2 = vDivide input
+      output1 = forwardPropagation nn1 input1
+      output2 = forwardPropagation nn2 input2
+    in
+      lift2 (+) output1 output2
+
+  backPropagation rate (NNSum nn1 nn2) input outputDiff =
+    let
+      input1 /\ input2 = vDivide input
+      newNN1 /\ inputDiff1 = backPropagation rate nn1 input1 outputDiff
+      newNN2 /\ inputDiff2 = backPropagation rate nn2 input2 outputDiff
+    in
+      NNSum newNN1 newNN2 /\ vAppend inputDiff1 inputDiff2
+
+newtype NNSumCopy nn = NNSumCopy nn
+
+nnSumCopy :: forall nn i o. NN nn i o => nn -> NNSumCopy nn
+nnSumCopy nn = NNSumCopy nn
+
+derive instance Eq nn => Eq (NNSumCopy nn)
+
+derive newtype instance WriteCSV nn => WriteCSV (NNSumCopy nn)
+derive newtype instance ReadCSV nn => ReadCSV (NNSumCopy nn)
+
+instance (NN nn i o, Add i i i2, Reflectable i Int, Reflectable o Int) => NN (NNSumCopy nn) i2 o where
+  forwardPropagation (NNSumCopy nn) input =
+    let
+      input1 /\ input2 = vDivide input
+      output1 = forwardPropagation nn input1
+      output2 = forwardPropagation nn input2
+    in
+      lift2 (+) output1 output2
+
+  backPropagation rate (NNSumCopy nn) input outputDiff =
+    let
+      input1 /\ input2 = vDivide input
+      newNNTop /\ inputDiff1 = backPropagation rate nn input1 outputDiff
+      newNNBottom /\ inputDiff2 = backPropagation rate newNNTop input2 outputDiff
+    in
+      NNSumCopy newNNBottom /\ vAppend inputDiff1 inputDiff2
+
+data NNId i = NNId
+
+nnId :: forall i. NNId i
+nnId = NNId
+
+derive instance Eq (NNId i)
+
+instance WriteCSV (NNId i) where
+  writeCSV _ = []
+
+instance ReadCSV (NNId i) where
+  readCSV arr = pure $ NNId /\ arr
+
+instance (Reflectable i Int) => NN (NNId i) i i where
+  forwardPropagation _ input = input
+  backPropagation _ _ _ outputDiff = NNId /\ outputDiff
 
 mRandom :: forall h w. Reflectable h Int => Reflectable w Int => Effect (Matrix h w Number)
 mRandom = mGenerateA \_ _ -> randomRange (-1.0) 1.0
