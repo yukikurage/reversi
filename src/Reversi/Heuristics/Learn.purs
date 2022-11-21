@@ -20,7 +20,7 @@ import Reversi.System (availablePositions, countDisks, initialBoard, nextBoards)
 import Reversi.Util (maximumI, maximumIs, minimumI, minimumIs, randArr)
 
 initGen :: Int
-initGen = 1100
+initGen = 3700
 
 steps :: Int
 steps = 1000000
@@ -45,7 +45,7 @@ step evalNN i = do
       | b > w = Just true
       | b < w = Just false
       | otherwise = Nothing
-    Tuple newNN diff = learnGameEvalNN 0.001 evalNN (take 58 history) isWinB
+    Tuple newNN diff = learnGameEvalNN 0.0005 evalNN (take 58 history) isWinB
   log $ "Win: " <> show isWinB
   log $ "Diff: " <> show diff
   pure newNN
