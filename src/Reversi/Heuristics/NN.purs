@@ -345,6 +345,72 @@ instance Reflectable i Int => NN (NNFunction i i) i i where
     in
       NNSigmoid /\ inputDiff
 
+data NNStack nn1 nn2 = NNStack nn1 nn2
+
+nnStack :: forall nn1 nn2 i1 o1 i2 o2 i o. Add i1 i2 i => Add o1 o2 o => NN nn1 i1 o1 => NN nn2 i2 o2 => nn1 -> nn2 -> NNStack nn1 nn2
+nnStack nn1 nn2 = NNStack nn1 nn2
+
+infixl 4 NNStack as >-<
+
+derive instance (Eq nn1, Eq nn2) => Eq (NNStack nn1 nn2)
+
+instance (WriteCSV nn1, WriteCSV nn2) => WriteCSV (NNStack nn1 nn2) where
+  writeCSV (NNStack nn1 nn2) = writeCSV nn1 <> writeCSV nn2
+
+instance (ReadCSV nn1, ReadCSV nn2) => ReadCSV (NNStack nn1 nn2) where
+  readCSV arr = do
+    nn1 /\ arr' <- readCSV arr
+    nn2 /\ arr'' <- readCSV arr'
+    pure $ NNStack nn1 nn2 /\ arr''
+
+instance (NN nn1 i1 o1, NN nn2 i2 o2, Add i1 i2 i, Add o1 o2 o, Reflectable i1 Int, Reflectable i2 Int, Reflectable i Int, Reflectable o1 Int, Reflectable o2 Int, Reflectable o Int) => NN (NNStack nn1 nn2) i o where
+  forwardPropagation (NNStack nn1 nn2) input =
+    let
+      input1 /\ input2 = vDivide input
+      output1 = forwardPropagation nn1 input1
+      output2 = forwardPropagation nn2 input2
+    in
+      vAppend output1 output2
+
+  backPropagation rate (NNStack nn1 nn2) input outputDiff =
+    let
+      input1 /\ input2 = vDivide input
+      outputDiff1 /\ outputDiff2 = vDivide outputDiff
+      newNN1 /\ inputDiff1 = backPropagation rate nn1 input1 outputDiff1
+      newNN2 /\ inputDiff2 = backPropagation rate nn2 input2 outputDiff2
+    in
+      NNStack newNN1 newNN2 /\ vAppend inputDiff1 inputDiff2
+
+newtype NNCopy nn = NNCopy nn
+
+nnCopy :: forall nn i o. NN nn i o => nn -> NNCopy nn
+nnCopy nn = NNCopy nn
+
+infixl 4 NNCopy as >||<
+
+derive instance Eq nn => Eq (NNCopy nn)
+
+derive newtype instance WriteCSV nn => WriteCSV (NNCopy nn)
+derive newtype instance ReadCSV nn => ReadCSV (NNCopy nn)
+
+instance (NN nn i o, Add i i i2, Add o o o2, Reflectable i Int, Reflectable o Int) => NN (NNCopy nn) i2 o2 where
+  forwardPropagation (NNCopy nn) input =
+    let
+      input1 /\ input2 = vDivide input
+      output1 = forwardPropagation nn input1
+      output2 = forwardPropagation nn input2
+    in
+      vAppend output1 output2
+
+  backPropagation rate (NNCopy nn) input outputDiff =
+    let
+      input1 /\ input2 = vDivide input
+      outputDiff1 /\ outputDiff2 = vDivide outputDiff
+      newNNTop /\ inputDiff1 = backPropagation rate nn input1 outputDiff1
+      newNNBottom /\ inputDiff2 = backPropagation rate newNNTop input2 outputDiff2
+    in
+      NNCopy newNNBottom /\ vAppend inputDiff1 inputDiff2
+
 mRandom :: forall h w. Reflectable h Int => Reflectable w Int => Effect (Matrix h w Number)
 mRandom = mGenerateA \_ _ -> randomRange (-1.0) 1.0
 
